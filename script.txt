@@ -3,7 +3,6 @@ node toolg/modifyReadme.mjs
 
 node toolg/cleanFolder.mjs
 ./node_modules/.bin/jsdoc -c .jsdoc
-node toolg/gDocsExams.mjs
 
 node toolg/gDistRollup.mjs
 
