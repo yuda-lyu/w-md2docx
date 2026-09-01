@@ -1,0 +1,171 @@
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
+import get from 'lodash-es/get.js'
+import isestr from 'wsemi/src/isestr.mjs'
+import isobj from 'wsemi/src/isobj.mjs'
+import fsIsFile from 'wsemi/src/fsIsFile.mjs'
+import WMd2html from 'w-md2html/src/WMd2html.mjs'
+import WHtml2docx from 'w-html2docx/src/WHtml2docx.mjs'
+import { toErrText, retryBusy, runExclusive, getFpExe } from './utils.mjs'
+
+
+/**
+ * Markdown檔轉Docx檔
+ *
+ * 內部流程為md -> html -> docx。docx階段係調用本機Microsoft Word(win32com)，故僅能於已安裝Word之Windows執行，且同時間僅一份轉檔作業(內部佇列自動排隊)。
+ *
+ * 注意：底層w-html2docx於Word未安裝或COM呼叫失敗時「仍回傳ok」，本函數一律以產物實體檔之存在與大小驗證成敗，失敗即reject，不會回報假成功。
+ *
+ * @param {String} fpInMd 輸入來源Markdown檔位置字串
+ * @param {String} fpOutDocx 輸入轉出Docx檔位置字串
+ * @param {Object} [opt={}] 輸入設定物件，預設{}
+ * @param {String} [opt.fpInTemp=''] 輸入Docx模板檔位置字串，未給則由w-html2docx使用其內建模板，預設''
+ * @param {String} [opt.fpOutHtml=''] 輸入另存中介Html檔位置字串，未給則中介檔產於系統暫存夾並於轉檔後刪除，預設''
+ * @param {Object} [opt.optMd2html={}] 輸入傳予w-md2html之設定物件(如imgWidthMax、fontSizeScale等)，預設{}
+ * @param {Object} [opt.optHtml2docx={}] 輸入傳予w-html2docx之設定物件(如imgRatioWidthMax、fontFamilies等)，預設{}
+ * @returns {Promise} 回傳Promise，resolve回傳結果物件{fpOutDocx,sizeDocx,sizeHtml,ms,[fpOutHtml]}，reject回傳錯誤訊息
+ * @example
+ *
+ * import cvMdToDocx from 'w-md2docx/src/cvMdToDocx.mjs'
+ *
+ * let r = await cvMdToDocx('./test/report.md', './test/report.docx', {
+ *     fpInTemp: './src/templates/temp_tpc.docx',
+ *     optMd2html: {
+ *         imgWidthMax: '500px',
+ *     },
+ * })
+ * console.log(r)
+ * // => { fpOutDocx: '…', sizeDocx: 39856, sizeHtml: 12345, ms: 8342 }
+ *
+ */
+async function cvMdToDocx(fpInMd, fpOutDocx, opt = {}) {
+
+    let msStart = Date.now()
+
+    //check fpInMd
+    if (!isestr(fpInMd)) {
+        return Promise.reject('fpInMd must be a non-empty string')
+    }
+    fpInMd = path.resolve(fpInMd)
+    if (!fsIsFile(fpInMd)) {
+        return Promise.reject(`fpInMd[${fpInMd}] does not exist`)
+    }
+
+    //check fpOutDocx
+    if (!isestr(fpOutDocx)) {
+        return Promise.reject('fpOutDocx must be a non-empty string')
+    }
+    fpOutDocx = path.resolve(fpOutDocx)
+
+    //fpOutHtml (未指定則產於系統暫存夾, 轉檔後刪除)
+    let fpOutHtml = get(opt, 'fpOutHtml', '')
+    let bKeepHtml = isestr(fpOutHtml)
+    if (bKeepHtml) {
+        fpOutHtml = path.resolve(fpOutHtml)
+    }
+    else {
+        //檔名唯一, 避免與被鎖定之同名殘檔衝突造成 EBUSY
+        fpOutHtml = path.join(os.tmpdir(), `wmd2docx_${process.pid}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.html`)
+    }
+
+    //optMd2html
+    let optMd2html = get(opt, 'optMd2html', {})
+    if (!isobj(optMd2html)) {
+        optMd2html = {}
+    }
+
+    //optHtml2docx (複製一份, 避免改動呼叫端物件)
+    let optHtml2docx = get(opt, 'optHtml2docx', {})
+    if (!isobj(optHtml2docx)) {
+        optHtml2docx = {}
+    }
+    optHtml2docx = { ...optHtml2docx }
+
+    //fpInTemp (未給則交由 w-html2docx 使用內建模板)
+    let fpInTemp = get(opt, 'fpInTemp', '')
+    if (isestr(fpInTemp)) {
+        fpInTemp = path.resolve(fpInTemp)
+        if (!fsIsFile(fpInTemp)) {
+            return Promise.reject(`fpInTemp[${fpInTemp}] does not exist`)
+        }
+        optHtml2docx.fpInTemp = fpInTemp
+    }
+
+    try {
+
+        //md -> html
+        //note: w-md2html 係以 md 所在資料夾解析其內引用之相對路徑圖片, 並預設轉為 base64 內嵌,
+        //      故中介 html 置於他處亦不影響圖片
+        fs.mkdirSync(path.dirname(fpOutHtml), { recursive: true })
+        let errHtml = null
+        await retryBusy(() => WMd2html(fpInMd, fpOutHtml, optMd2html))
+            .catch((err) => {
+                errHtml = toErrText(err)
+            })
+        if (errHtml !== null) {
+            return Promise.reject(`Failed to convert md to html: ${errHtml}`)
+        }
+
+        //驗證 html(產物實體檔為準, 不憑回傳值)
+        if (!fsIsFile(fpOutHtml) || fs.statSync(fpOutHtml).size === 0) {
+            return Promise.reject('Failed to convert md to html: html was not generated or is empty')
+        }
+        let sizeHtml = fs.statSync(fpOutHtml).size
+
+        //事前檢查轉檔器(依 cwd 定位, 查無則此 cwd 下必定失敗, 先行明確報錯)
+        let fpExe = getFpExe()
+        if (fpExe === '') {
+            return Promise.reject(`htmlToDocx.exe not found (cwd=${path.resolve()}), please run from the folder that contains node_modules/w-html2docx`)
+        }
+
+        //html -> docx(排隊逐一執行, 避免同時調用本機 Word)
+        fs.mkdirSync(path.dirname(fpOutDocx), { recursive: true })
+        let errDocx = null
+        await runExclusive(() => retryBusy(() => WHtml2docx(fpOutHtml, fpOutDocx, optHtml2docx)))
+            .catch((err) => {
+                errDocx = toErrText(err)
+            })
+        if (errDocx !== null) {
+            return Promise.reject(`Failed to convert html to docx: ${errDocx}`)
+        }
+
+        //驗證 docx
+        //why: w-html2docx 於 Word 未安裝、COM 呼叫失敗等情形「仍回傳 ok」(錯誤僅印於其子程序之輸出),
+        //     故一律以產物實體檔之存在與大小為準, 否則將回報假成功
+        if (!fsIsFile(fpOutDocx) || fs.statSync(fpOutDocx).size === 0) {
+            return Promise.reject('docx was not generated: please make sure Microsoft Word is installed and no stale WINWORD process is locking the files')
+        }
+        let sizeDocx = fs.statSync(fpOutDocx).size
+
+        let rt = {
+            fpOutDocx,
+            sizeDocx,
+            sizeHtml,
+            ms: Date.now() - msStart,
+        }
+        if (bKeepHtml) {
+            rt.fpOutHtml = fpOutHtml
+        }
+
+        return rt
+
+    }
+    finally {
+
+        //刪除中介 html(使用者指定保留者不刪; 被鎖就略過, 留待系統暫存清理)
+        if (!bKeepHtml && fsIsFile(fpOutHtml)) {
+            try {
+                fs.unlinkSync(fpOutHtml)
+            }
+            catch (err) {
+                //殘檔被鎖, 略過
+            }
+        }
+
+    }
+
+}
+
+
+export default cvMdToDocx

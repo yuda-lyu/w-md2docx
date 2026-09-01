@@ -1,0 +1,467 @@
+import fs from 'fs'
+import path from 'path'
+import get from 'lodash-es/get.js'
+import isstr from 'wsemi/src/isstr.mjs'
+import isestr from 'wsemi/src/isestr.mjs'
+import isbol from 'wsemi/src/isbol.mjs'
+import isobj from 'wsemi/src/isobj.mjs'
+import ispnum from 'wsemi/src/ispnum.mjs'
+import ispint from 'wsemi/src/ispint.mjs'
+import isp0int from 'wsemi/src/isp0int.mjs'
+import cint from 'wsemi/src/cint.mjs'
+import cdbl from 'wsemi/src/cdbl.mjs'
+import fsIsFile from 'wsemi/src/fsIsFile.mjs'
+import { toErrText } from './utils.mjs'
+
+
+//hostDef, portDef: 服務位置預設值(與 ApiServer 預設埠一致)
+let hostDef = '127.0.0.1'
+let portDef = 22000
+
+
+//getUrl: 取服務位置
+//優先序: opt.url(完整位址, 含協定與可能之路徑前綴) > opt.host + opt.port(可各自獨立給, 缺者依序取環境變數 WMD2DOCX_HOST / WMD2DOCX_PORT 再取預設值)
+function getUrl(opt) {
+
+    //url
+    let url = get(opt, 'url', '')
+    if (isestr(url)) {
+        return url.trim().replace(/\/+$/, '')
+    }
+
+    //host
+    let host = get(opt, 'host', '')
+    if (!isestr(host)) {
+        host = get(process, 'env.WMD2DOCX_HOST', '')
+    }
+    if (!isestr(host)) {
+        host = hostDef
+    }
+    host = host.trim()
+
+    //port
+    let port = get(opt, 'port', null)
+    if (!ispint(port)) {
+        port = get(process, 'env.WMD2DOCX_PORT', null)
+    }
+    if (!ispint(port)) {
+        port = portDef
+    }
+    port = cint(port)
+
+    return `http://${host}:${port}`
+}
+
+
+//getToken: 取權杖(參數 > 環境變數 WMD2DOCX_TOKEN > 空字串)
+function getToken(token) {
+    if (!isestr(token)) {
+        token = get(process, 'env.WMD2DOCX_TOKEN', '')
+    }
+    if (!isestr(token)) {
+        token = ''
+    }
+    return token
+}
+
+
+/**
+ * 掃描Markdown內引用之本機相對路徑資產(圖片等)
+ *
+ * 涵蓋html之&lt;img src="…"&gt;與markdown之![](…)；排除網路位址、data協定、mailto、錨點與絕對路徑，並去除錨點與查詢字串。
+ *
+ * @param {String} md 輸入Markdown內容字串
+ * @returns {Array} 回傳相對路徑字串陣列(已去重)
+ * @example
+ *
+ * console.log(scanAssetPaths('![a](pics/a.png)\n<img src="pics/b.png" />\n![c](https://x.com/c.png)'))
+ * // => [ 'pics/a.png', 'pics/b.png' ]
+ *
+ */
+function scanAssetPaths(md) {
+    let ps = new Set()
+
+    if (!isstr(md)) {
+        return []
+    }
+
+    let add = (v) => {
+        if (!isstr(v)) {
+            return
+        }
+        let p = v.trim().replace(/^<|>$/g, '')
+        if (p === '') {
+            return
+        }
+        if (/^(https?:)?\/\//i.test(p) || /^data:/i.test(p) || /^mailto:/i.test(p) || /^#/.test(p)) {
+            return //網路位址、內嵌資料與錨點不需夾帶
+        }
+        if (/^[a-zA-Z]:/.test(p) || p.startsWith('/')) {
+            return //絕對路徑不夾帶(服務端一律拒收)
+        }
+        p = p.split('#')[0].split('?')[0] //去除錨點與查詢字串
+        if (p === '') {
+            return
+        }
+        ps.add(p)
+    }
+
+    for (let m of md.matchAll(/<img[^>]*?\ssrc\s*=\s*["']([^"']+)["']/gi)) {
+        add(m[1])
+    }
+    for (let m of md.matchAll(/!\[[^\]]*\]\(\s*([^)\s]+)/g)) {
+        add(m[1])
+    }
+
+    return [...ps]
+}
+
+
+/**
+ * 讀取Markdown引用之資產檔並轉base64
+ *
+ * path一律回傳md內之原字串(服務端據以還原相對路徑)；實體檔則原字串與URL解碼後字串皆嘗試。
+ *
+ * @param {String} md 輸入Markdown內容字串
+ * @param {String} dirMd 輸入Markdown所在資料夾位置字串，相對路徑以此為基準
+ * @returns {Object} 回傳{assets,missing}，assets為[{path,base64}]，missing為找不到之相對路徑陣列
+ * @example
+ *
+ * let { assets, missing } = readAssets('![a](pics/a.png)', './report')
+ * // => { assets: [ { path: 'pics/a.png', base64: '…' } ], missing: [] }
+ *
+ */
+function readAssets(md, dirMd) {
+    let assets = []
+    let missing = []
+
+    if (!isestr(dirMd)) {
+        dirMd = '.'
+    }
+
+    for (let p of scanAssetPaths(md)) {
+
+        //候選實體路徑(md 內可能為 URL 編碼之中文檔名)
+        let cands = [p]
+        try {
+            let dec = decodeURIComponent(p)
+            if (dec !== p) {
+                cands.push(dec)
+            }
+        }
+        catch (err) {
+            //非法 percent 序列, 略過解碼候選
+        }
+
+        let fpHit = ''
+        for (let c of cands) {
+            let fp = path.resolve(dirMd, c)
+            if (fsIsFile(fp)) {
+                fpHit = fp
+                break
+            }
+        }
+
+        if (fpHit === '') {
+            missing.push(p)
+            continue
+        }
+
+        assets.push({
+            path: p,
+            base64: fs.readFileSync(fpHit).toString('base64'),
+        })
+
+    }
+    return { assets, missing }
+}
+
+
+/**
+ * 將本機Markdown檔送至轉檔服務，取回並寫出Html與(或)Docx
+ *
+ * 供無Microsoft Word之機器產製docx：讀取本機md與其引用之圖片，送至ApiServer轉檔後寫回本機。連線層失敗會自動重試；逾時與HTTP錯誤不重試。
+ *
+ * @param {Object} [opt={}] 輸入設定物件，預設{}
+ * @param {String} [opt.host='127.0.0.1'] 輸入服務主機位址(ip或網域)字串，未給則取環境變數WMD2DOCX_HOST，再無則用'127.0.0.1'，預設'127.0.0.1'
+ * @param {Integer} [opt.port=22000] 輸入服務埠號整數，未給則取環境變數WMD2DOCX_PORT，再無則用22000，預設22000
+ * @param {String} [opt.url=''] 輸入服務完整位址字串(如'https://host/prefix')，給予時覆寫host與port，預設''
+ * @param {String} opt.fpInMd 輸入來源Markdown檔位置字串
+ * @param {String} [opt.fpOutDocx=''] 輸入轉出Docx檔位置字串，與fpOutHtml皆未給時預設於md旁產出同名docx，預設''
+ * @param {String} [opt.fpOutHtml=''] 輸入轉出Html檔位置字串，預設''
+ * @param {String} [opt.fpInTemp=''] 輸入本機Docx模板檔位置字串，給予時以base64夾帶至服務端，預設''
+ * @param {String} [opt.templateName=''] 輸入服務端模板檔名字串，預設''
+ * @param {String} [opt.name=''] 輸入輸出檔名主體字串，未給則取md檔名，預設''
+ * @param {String} [opt.token=''] 輸入x-api-token字串，未給則取環境變數WMD2DOCX_TOKEN，預設''
+ * @param {Object} [opt.optMd2html] 輸入傳予w-md2html之設定物件
+ * @param {Object} [opt.optHtml2docx] 輸入傳予w-html2docx之設定物件
+ * @param {Boolean} [opt.allowMissingAssets=false] 輸入是否容許md引用之資產檔不存在布林值，預設false
+ * @param {Number} [opt.timeoutMs=600000] 輸入逾時毫秒數，轉檔含Word啟動故預設10分鐘，預設600000
+ * @param {Integer} [opt.retries=3] 輸入連線層失敗之重試次數整數，預設3
+ * @returns {Promise} 回傳Promise，resolve回傳結果物件{ms,nAssets,template,[html],[docx]}，其中html與docx為{fp,size}，reject回傳錯誤訊息
+ * @example
+ *
+ * import { cvMdTo } from 'w-md2docx/src/ApiClient.mjs'
+ *
+ * let r = await cvMdTo({
+ *     host: '127.0.0.1',
+ *     port: 22000,
+ *     fpInMd: './test/report.md',
+ *     fpOutDocx: './test/report.docx',
+ * })
+ * console.log(r)
+ * // => { ms: 8342, nAssets: 1, template: 'default', docx: { fp: '…', size: 39856 } }
+ *
+ */
+async function cvMdTo(opt = {}) {
+
+    //url
+    let url = getUrl(opt)
+
+    //fpInMd
+    let fpInMd = get(opt, 'fpInMd', '')
+    if (!isestr(fpInMd)) {
+        return Promise.reject('fpInMd must be a non-empty string')
+    }
+    fpInMd = path.resolve(fpInMd)
+    if (!fsIsFile(fpInMd)) {
+        return Promise.reject(`fpInMd[${fpInMd}] does not exist`)
+    }
+
+    //fpOutDocx, fpOutHtml
+    let fpOutDocx = get(opt, 'fpOutDocx', '')
+    fpOutDocx = isestr(fpOutDocx) ? path.resolve(fpOutDocx) : ''
+    let fpOutHtml = get(opt, 'fpOutHtml', '')
+    fpOutHtml = isestr(fpOutHtml) ? path.resolve(fpOutHtml) : ''
+    if (fpOutDocx === '' && fpOutHtml === '') {
+        //未指定輸出時, 預設於 md 旁產出同名 docx
+        fpOutDocx = path.resolve(path.dirname(fpInMd), `${path.basename(fpInMd).replace(/\.md$/i, '')}.docx`)
+    }
+
+    //out (依欲寫出之檔案決定)
+    let out = 'docx'
+    if (fpOutDocx !== '' && fpOutHtml !== '') {
+        out = 'both'
+    }
+    else if (fpOutHtml !== '') {
+        out = 'html'
+    }
+
+    //allowMissingAssets
+    let allowMissingAssets = get(opt, 'allowMissingAssets', false)
+    if (!isbol(allowMissingAssets)) {
+        allowMissingAssets = false
+    }
+
+    //md 與資產
+    let md = fs.readFileSync(fpInMd, 'utf8')
+    let dirMd = path.dirname(fpInMd)
+    let { assets, missing } = readAssets(md, dirMd)
+    if (missing.length > 0 && !allowMissingAssets) {
+        //why: 缺圖不擋下會靜默產出破圖之 docx, 交付後才被發現
+        return Promise.reject(`${missing.length} asset file(s) referenced in md do not exist: ${missing.join(', ')}. Set allowMissingAssets:true to skip this check`)
+    }
+
+    //name (輸出檔名主體, 未指定則取 md 檔名)
+    let name = get(opt, 'name', '')
+    if (!isestr(name)) {
+        name = path.basename(fpInMd).replace(/\.md$/i, '')
+    }
+
+    //body
+    let body = {
+        md,
+        name,
+        out,
+        assets,
+    }
+    let optMd2html = get(opt, 'optMd2html', null)
+    if (isobj(optMd2html)) {
+        body.optMd2html = optMd2html
+    }
+    let optHtml2docx = get(opt, 'optHtml2docx', null)
+    if (isobj(optHtml2docx)) {
+        body.optHtml2docx = optHtml2docx
+    }
+    let templateName = get(opt, 'templateName', '')
+    if (isestr(templateName)) {
+        body.templateName = templateName.trim()
+    }
+    let fpInTemp = get(opt, 'fpInTemp', '')
+    if (isestr(fpInTemp)) {
+        fpInTemp = path.resolve(fpInTemp)
+        if (!fsIsFile(fpInTemp)) {
+            return Promise.reject(`fpInTemp[${fpInTemp}] does not exist`)
+        }
+        body.templateBase64 = fs.readFileSync(fpInTemp).toString('base64')
+    }
+
+    //headers
+    let headers = { 'content-type': 'application/json' }
+    let token = getToken(get(opt, 'token', ''))
+    if (token !== '') {
+        headers['x-api-token'] = token
+    }
+
+    //timeoutMs (轉檔含 Word 啟動, 預設 10 分鐘)
+    let timeoutMs = get(opt, 'timeoutMs', null)
+    if (!ispnum(timeoutMs)) {
+        timeoutMs = 600000
+    }
+    timeoutMs = cdbl(timeoutMs)
+
+    //retries (連線層失敗之重試次數)
+    let retries = get(opt, 'retries', null)
+    if (!isp0int(retries)) {
+        retries = 3
+    }
+    retries = cint(retries)
+
+    //post
+    //why: 連線層失敗(網路瞬斷、服務端重啟、TCP 佇列滿)屬暫時性, 須重試;
+    //     逾時與業務錯誤(HTTP 4xx/5xx)則不重試——前者重試只會更久, 後者重試結果相同
+    let cBody = JSON.stringify(body)
+    let res = null
+    let errLast = ''
+    for (let i = 0; i <= retries; i++) {
+
+        if (i > 0) {
+            let msWait = [0, 3000, 8000, 15000][i] || 15000
+            console.log(`connection failed, retrying in ${msWait / 1000}s (${i}/${retries}): ${errLast}`)
+            await new Promise((resolve) => setTimeout(resolve, msWait))
+        }
+
+        try {
+            res = await fetch(`${url}/api/convert`, {
+                method: 'POST',
+                headers,
+                body: cBody,
+                signal: AbortSignal.timeout(timeoutMs),
+            })
+            errLast = ''
+            break
+        }
+        catch (err) {
+            let nameErr = get(err, 'name', '')
+            errLast = toErrText(err) || 'unknown error'
+            if (nameErr === 'TimeoutError' || nameErr === 'AbortError') {
+                return Promise.reject(`Conversion timed out (no response within ${timeoutMs} ms): ${url}`)
+            }
+        }
+
+    }
+    if (errLast !== '') {
+        return Promise.reject(`Unable to connect to the conversion service ${url} (retried ${retries} times): ${errLast}`)
+    }
+
+    //rt
+    let rt = await res.json().catch(() => null)
+    if (!res.ok || !isobj(rt) || rt.success !== true) {
+        let msg = get(rt, 'error', '')
+        if (!isestr(msg)) {
+            msg = `HTTP ${res.status}`
+        }
+        return Promise.reject(`Conversion failed: ${msg}`)
+    }
+
+    //寫出並驗證產物(以實體檔大小為準)
+    let rw = { ms: rt.ms, nAssets: rt.nAssets, template: rt.template }
+
+    let writeOne = (fpOut, one, tag) => {
+        if (fpOut === '') {
+            return ''
+        }
+        let b64 = get(one, 'base64', '')
+        if (!isestr(b64)) {
+            return `the service did not return ${tag}`
+        }
+        fs.mkdirSync(path.dirname(fpOut), { recursive: true })
+        fs.writeFileSync(fpOut, Buffer.from(b64, 'base64'))
+        let size = fs.statSync(fpOut).size
+        if (size === 0) {
+            return `${tag} is empty after being written: ${fpOut}`
+        }
+        rw[tag] = { fp: fpOut, size }
+        return ''
+    }
+
+    let errWrite = writeOne(fpOutHtml, rt.html, 'html')
+    if (errWrite !== '') {
+        return Promise.reject(errWrite)
+    }
+    errWrite = writeOne(fpOutDocx, rt.docx, 'docx')
+    if (errWrite !== '') {
+        return Promise.reject(errWrite)
+    }
+
+    return rw
+}
+
+
+/**
+ * 查詢轉檔服務之健康狀態
+ *
+ * @param {Object} [opt={}] 輸入設定物件，預設{}
+ * @param {String} [opt.host='127.0.0.1'] 輸入服務主機位址(ip或網域)字串，未給則取環境變數WMD2DOCX_HOST，再無則用'127.0.0.1'，預設'127.0.0.1'
+ * @param {Integer} [opt.port=22000] 輸入服務埠號整數，未給則取環境變數WMD2DOCX_PORT，再無則用22000，預設22000
+ * @param {String} [opt.url=''] 輸入服務完整位址字串，給予時覆寫host與port，預設''
+ * @param {String} [opt.token=''] 輸入x-api-token字串，未給則取環境變數WMD2DOCX_TOKEN，預設''
+ * @param {Number} [opt.timeoutMs=20000] 輸入逾時毫秒數，預設20000
+ * @returns {Promise} 回傳Promise，resolve回傳服務端回傳之狀態物件，reject回傳錯誤訊息
+ * @example
+ *
+ * import { health } from 'w-md2docx/src/ApiClient.mjs'
+ *
+ * let r = await health({ host: '127.0.0.1', port: 22000 })
+ * console.log(r)
+ * // => { success: true, platform: 'win32', docxReady: true, … }
+ *
+ */
+async function health(opt = {}) {
+
+    //url
+    let url = getUrl(opt)
+
+    //headers
+    let headers = {}
+    let token = getToken(get(opt, 'token', ''))
+    if (token !== '') {
+        headers['x-api-token'] = token
+    }
+
+    //timeoutMs
+    let timeoutMs = get(opt, 'timeoutMs', null)
+    if (!ispnum(timeoutMs)) {
+        timeoutMs = 20000
+    }
+    timeoutMs = cdbl(timeoutMs)
+
+    //fetch
+    let res = null
+    try {
+        res = await fetch(`${url}/api/health`, { headers, signal: AbortSignal.timeout(timeoutMs) })
+    }
+    catch (err) {
+        return Promise.reject(`Unable to connect to the conversion service ${url}: ${toErrText(err)}`)
+    }
+
+    //rt
+    let rt = await res.json().catch(() => null)
+    if (!isobj(rt)) {
+        return Promise.reject(`Invalid response from the conversion service ${url}: HTTP ${res.status}`)
+    }
+
+    return rt
+}
+
+
+let ApiClient = {
+    cvMdTo,
+    health,
+    scanAssetPaths,
+    readAssets,
+}
+
+
+export { cvMdTo, health, scanAssetPaths, readAssets }
+export default ApiClient

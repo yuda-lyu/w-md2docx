@@ -1,0 +1,216 @@
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
+import get from 'lodash-es/get.js'
+import isestr from 'wsemi/src/isestr.mjs'
+import isbol from 'wsemi/src/isbol.mjs'
+import isobj from 'wsemi/src/isobj.mjs'
+import isarr from 'wsemi/src/isarr.mjs'
+import fsIsFile from 'wsemi/src/fsIsFile.mjs'
+import WMd2html from 'w-md2html/src/WMd2html.mjs'
+import cvMdToDocx from './cvMdToDocx.mjs'
+import { mimeHtml, mimeDocx, toErrText, retryBusy, toSafeName, writeAssets, transErrAsset } from './utils.mjs'
+
+
+/**
+ * Markdown內容轉Html與Docx內容
+ *
+ * 與cvMdToDocx之差異：本函數接收Markdown「內容」與其引用之資產(圖片等)，於獨立工作資料夾內還原後轉檔，完成後回傳產物之base64內容並清除工作資料夾。適用於服務端等無實體來源檔之情境；有實體md檔者請直接用cvMdToDocx。
+ *
+ * @param {Object} [opt={}] 輸入設定物件，預設{}
+ * @param {String} [opt.md=''] 輸入Markdown內容字串，與mdBase64二擇一
+ * @param {String} [opt.mdBase64=''] 輸入Markdown內容之base64字串，與md二擇一
+ * @param {String} [opt.name='output'] 輸入輸出檔名主體字串(不含副檔名)，將自動移除路徑成分與非法字元，預設'output'
+ * @param {String} [opt.out='docx'] 輸入產出類型字串，可為'html'、'docx'、'both'，預設'docx'
+ * @param {Array} [opt.assets=[]] 輸入md內引用之相對路徑資產陣列，格式[{path,base64}]，預設[]
+ * @param {String} [opt.dirWork=''] 輸入工作資料夾根位置字串，未給則用系統暫存夾下之w-md2docx，預設''
+ * @param {String} [opt.fpInTemp=''] 輸入Docx模板檔位置字串，未給則由w-html2docx使用其內建模板，預設''
+ * @param {Object} [opt.optMd2html={}] 輸入傳予w-md2html之設定物件，預設{}
+ * @param {Object} [opt.optHtml2docx={}] 輸入傳予w-html2docx之設定物件，預設{}
+ * @param {Boolean} [opt.keepWork=false] 輸入是否保留工作資料夾供除錯布林值，預設false
+ * @returns {Promise} 回傳Promise，resolve回傳結果物件{name,out,ms,nAssets,[msDocx],[html],[docx]}，其中html與docx為{fileName,mime,size,base64}，reject回傳錯誤訊息
+ * @example
+ *
+ * import cvMdTo from 'w-md2docx/src/cvMdTo.mjs'
+ *
+ * let r = await cvMdTo({
+ *     md: '# 標題\n\n<img src="pics/圖.png" />',
+ *     name: '報告R00.01',
+ *     out: 'docx',
+ *     assets: [{ path: 'pics/圖.png', base64: '…' }],
+ * })
+ * console.log(r)
+ * // => { name: '報告R00.01', out: 'docx', ms: 8342, nAssets: 1, msDocx: 8300, docx: { fileName: '報告R00.01.docx', mime: '…', size: 39856, base64: '…' } }
+ *
+ */
+async function cvMdTo(opt = {}) {
+
+    let msStart = Date.now()
+
+    //out
+    let out = get(opt, 'out', '')
+    if (out !== 'html' && out !== 'docx' && out !== 'both') {
+        out = 'docx'
+    }
+    let needHtml = (out === 'html' || out === 'both')
+    let needDocx = (out === 'docx' || out === 'both')
+
+    //md
+    let md = ''
+    let mdIn = get(opt, 'md', '')
+    let mdBase64 = get(opt, 'mdBase64', '')
+    if (isestr(mdIn)) {
+        md = mdIn
+    }
+    else if (isestr(mdBase64)) {
+        md = Buffer.from(mdBase64, 'base64').toString('utf8')
+    }
+    if (md.trim() === '') {
+        return Promise.reject('md is empty: md (string) or mdBase64 is required')
+    }
+
+    //name
+    let name = toSafeName(get(opt, 'name', ''))
+
+    //assets
+    let assets = get(opt, 'assets', [])
+    if (!isarr(assets)) {
+        assets = []
+    }
+
+    //dirWork (未指定則用系統暫存夾)
+    let dirWork = get(opt, 'dirWork', '')
+    if (!isestr(dirWork)) {
+        dirWork = path.join(os.tmpdir(), 'w-md2docx')
+    }
+    dirWork = path.resolve(dirWork)
+
+    //fpInTemp (存在性由 cvMdToDocx 檢查)
+    let fpInTemp = get(opt, 'fpInTemp', '')
+    if (!isestr(fpInTemp)) {
+        fpInTemp = ''
+    }
+
+    //optMd2html
+    let optMd2html = get(opt, 'optMd2html', {})
+    if (!isobj(optMd2html)) {
+        optMd2html = {}
+    }
+
+    //optHtml2docx
+    let optHtml2docx = get(opt, 'optHtml2docx', {})
+    if (!isobj(optHtml2docx)) {
+        optHtml2docx = {}
+    }
+
+    //keepWork (除錯用, 保留工作資料夾)
+    let keepWork = get(opt, 'keepWork', false)
+    if (!isbol(keepWork)) {
+        keepWork = false
+    }
+
+    //dirJob (每次作業獨立資料夾, 使同名檔案與資產互不干擾)
+    let idJob = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    let dirJob = path.resolve(dirWork, `job_${idJob}`)
+    fs.mkdirSync(dirJob, { recursive: true })
+
+    let rt = {
+        name,
+        out,
+        ms: 0,
+        nAssets: 0,
+    }
+
+    try {
+
+        //寫入 md (資產以 md 所在資料夾為基準解析, 故兩者同置於 dirJob)
+        let fpMd = path.resolve(dirJob, `${name}.md`)
+        fs.writeFileSync(fpMd, md, 'utf8')
+
+        //寫入資產
+        try {
+            rt.nAssets = writeAssets(dirJob, assets)
+        }
+        catch (err) {
+            return Promise.reject(toErrText(err))
+        }
+
+        let fpHtml = path.resolve(dirJob, `${name}.html`)
+
+        if (needDocx) {
+
+            //md -> html -> docx (中介 html 指定產於作業夾, 供 out 含 html 時一併回傳)
+            let fpDocx = path.resolve(dirJob, `${name}.docx`)
+            let errDocx = null
+            let r = await cvMdToDocx(fpMd, fpDocx, {
+                fpInTemp,
+                fpOutHtml: fpHtml,
+                optMd2html,
+                optHtml2docx,
+            })
+                .catch((err) => {
+                    errDocx = transErrAsset(toErrText(err))
+                })
+            if (errDocx !== null) {
+                return Promise.reject(errDocx)
+            }
+
+            let buf = fs.readFileSync(fpDocx)
+            rt.docx = {
+                fileName: `${name}.docx`,
+                mime: mimeDocx,
+                size: buf.length,
+                base64: buf.toString('base64'),
+            }
+            rt.msDocx = get(r, 'ms', 0)
+
+        }
+        else {
+
+            //僅需 html, 不啟動 Word
+            let errHtml = null
+            await retryBusy(() => WMd2html(fpMd, fpHtml, optMd2html))
+                .catch((err) => {
+                    errHtml = toErrText(err)
+                })
+            if (errHtml !== null) {
+                return Promise.reject(transErrAsset(`Failed to convert md to html: ${errHtml}`))
+            }
+            if (!fsIsFile(fpHtml) || fs.statSync(fpHtml).size === 0) {
+                return Promise.reject('Failed to convert md to html: html was not generated or is empty')
+            }
+
+        }
+
+        if (needHtml) {
+            let buf = fs.readFileSync(fpHtml)
+            rt.html = {
+                fileName: `${name}.html`,
+                mime: mimeHtml,
+                size: buf.length,
+                base64: buf.toString('base64'),
+            }
+        }
+
+        rt.ms = Date.now() - msStart
+        return rt
+
+    }
+    finally {
+
+        //清除作業資料夾(除錯模式保留)
+        if (!keepWork) {
+            try {
+                fs.rmSync(dirJob, { recursive: true, force: true })
+            }
+            catch (err) {
+                //殘檔被鎖, 留待下次清理
+            }
+        }
+
+    }
+
+}
+
+
+export default cvMdTo

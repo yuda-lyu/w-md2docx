@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    
+    <meta charset="utf-8">
+    <title>utils.mjs - Documentation</title>
+    
+    
+    <script src="scripts/prettify/prettify.js"></script>
+    <script src="scripts/prettify/lang-css.js"></script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc.css">
+    <script src="scripts/nav.js" defer></script>
+    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body>
+
+<input type="checkbox" id="nav-trigger" class="nav-trigger" />
+<label for="nav-trigger" class="navicon-button x">
+  <div class="navicon"></div>
+</label>
+
+<label for="nav-trigger" class="overlay"></label>
+
+<nav >
+    
+    
+    <h2><a href="index.html">Home</a></h2><h3>Global</h3><ul><li><a href="global.html#ApiServer">ApiServer</a></li><li><a href="global.html#WMd2docx">WMd2docx</a></li><li><a href="global.html#checkDocxReady">checkDocxReady</a></li><li><a href="global.html#cleanWorkDir">cleanWorkDir</a></li><li><a href="global.html#cvMdTo">cvMdTo</a></li><li><a href="global.html#cvMdToDocx">cvMdToDocx</a></li><li><a href="global.html#getFpExe">getFpExe</a></li><li><a href="global.html#getQueueSize">getQueueSize</a></li><li><a href="global.html#health">health</a></li><li><a href="global.html#readAssets">readAssets</a></li><li><a href="global.html#resolveAssetPaths">resolveAssetPaths</a></li><li><a href="global.html#retryBusy">retryBusy</a></li><li><a href="global.html#runExclusive">runExclusive</a></li><li><a href="global.html#scanAssetPaths">scanAssetPaths</a></li><li><a href="global.html#toErrText">toErrText</a></li><li><a href="global.html#toSafeName">toSafeName</a></li><li><a href="global.html#transErrAsset">transErrAsset</a></li><li><a href="global.html#writeAssets">writeAssets</a></li></ul>
+    
+</nav>
+
+<div id="main">
+    
+    <h1 class="page-title">utils.mjs</h1>
+    
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>import fs from 'fs'
+import path from 'path'
+import get from 'lodash-es/get.js'
+import isstr from 'wsemi/src/isstr.mjs'
+import isestr from 'wsemi/src/isestr.mjs'
+import isarr from 'wsemi/src/isarr.mjs'
+import isfun from 'wsemi/src/isfun.mjs'
+import ispint from 'wsemi/src/ispint.mjs'
+import ispnum from 'wsemi/src/ispnum.mjs'
+import cint from 'wsemi/src/cint.mjs'
+import cdbl from 'wsemi/src/cdbl.mjs'
+import fsIsFile from 'wsemi/src/fsIsFile.mjs'
+import fsIsFolder from 'wsemi/src/fsIsFolder.mjs'
+
+
+//mime
+let mimeHtml = 'text/html; charset=utf-8'
+let mimeDocx = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+
+
+/**
+ * 取錯誤訊息文字
+ *
+ * 底層轉檔器之reject可能為字串或Error物件，統一轉為文字供組合訊息使用。
+ *
+ * @param {*} err 輸入錯誤資料，可為字串、Error物件或任意資料
+ * @returns {String} 回傳錯誤訊息字串
+ * @example
+ *
+ * console.log(toErrText('abc'))
+ * // => 'abc'
+ *
+ * console.log(toErrText(new Error('abc')))
+ * // => 'abc'
+ *
+ */
+function toErrText(err) {
+    if (isstr(err)) {
+        return err
+    }
+    if (isestr(get(err, 'message'))) {
+        return err.message
+    }
+    let s = ''
+    try {
+        s = JSON.stringify(err) //undefined/function/symbol 會回 undefined 而非字串
+    }
+    catch (e) {
+        s = ''
+    }
+    if (!isstr(s)) {
+        s = String(err)
+    }
+    return s
+}
+
+
+/**
+ * 重試短暫被鎖定之檔案操作
+ *
+ * Windows下新建檔案常被防毒或索引器即時掃描而短暫鎖定(EBUSY/EPERM)，遇此類錯誤時延遲後重試以提高穩定性，其餘錯誤直接拋出。
+ *
+ * @param {Function} fun 輸入欲執行之函數，可回傳Promise
+ * @param {Object} [opt={}] 輸入設定物件，預設{}
+ * @param {Integer} [opt.tries=6] 輸入最多嘗試次數整數，預設6
+ * @param {Number} [opt.delayMs=400] 輸入每次重試前延遲毫秒數，預設400
+ * @returns {Promise} 回傳Promise，resolve回傳fun之結果，reject回傳錯誤
+ * @example
+ *
+ * let r = await retryBusy(() => fs.promises.readFile('./a.txt', 'utf8'), { tries: 3 })
+ *
+ */
+async function retryBusy(fun, opt = {}) {
+
+    //check
+    if (!isfun(fun)) {
+        return Promise.reject('fun must be a function')
+    }
+
+    //tries
+    let tries = get(opt, 'tries', null)
+    if (!ispint(tries)) {
+        tries = 6
+    }
+    tries = cint(tries)
+
+    //delayMs
+    let delayMs = get(opt, 'delayMs', null)
+    if (!ispnum(delayMs)) {
+        delayMs = 400
+    }
+    delayMs = cdbl(delayMs)
+
+    let errLast = null
+    for (let i = 0; i &lt; tries; i++) {
+        try {
+            return await fun()
+        }
+        catch (err) {
+            errLast = err
+            let code = get(err, 'code', '')
+            let busy = (code === 'EBUSY' || code === 'EPERM')
+            if (busy &amp;&amp; i &lt; tries - 1) {
+                await new Promise((resolve) => setTimeout(resolve, delayMs))
+                continue
+            }
+            throw err
+        }
+    }
+    throw errLast
+}
+
+
+//pmChain: docx 轉檔須逐一序列化
+//why: 底層係調用本機 Word(win32com)進行轉檔, 同時執行多份會相互干擾(共用 Word 實例、模板檔遭鎖定),
+//     故不論同時進來幾個請求, docx 階段一律排隊逐一執行; md 轉 html 為純 JS 不受此限
+let pmChain = Promise.resolve()
+let nQueue = 0
+
+
+/**
+ * 將函數排入Word轉檔佇列並逐一執行
+ *
+ * 底層係調用本機Word(win32com)轉檔，同時執行多份會相互干擾，故docx階段一律排隊逐一執行；前一件不論成敗均續行下一件。
+ *
+ * @param {Function} fun 輸入欲執行之函數，可回傳Promise
+ * @returns {Promise} 回傳Promise，resolve回傳fun之結果，reject回傳錯誤
+ * @example
+ *
+ * let r = await runExclusive(() => WHtml2docx('./a.html', './a.docx'))
+ *
+ */
+function runExclusive(fun) {
+
+    //check
+    if (!isfun(fun)) {
+        return Promise.reject('fun must be a function')
+    }
+
+    nQueue++
+    let pm = pmChain.then(fun, fun) //前一件不論成敗均續行
+    pmChain = pm.then(() => {
+        nQueue--
+    }, () => {
+        nQueue--
+    })
+    return pm
+}
+
+
+/**
+ * 取當前排隊中(含執行中)之docx轉檔數
+ *
+ * @returns {Integer} 回傳排隊數整數
+ * @example
+ *
+ * console.log(getQueueSize())
+ * // => 0
+ *
+ */
+function getQueueSize() {
+    return nQueue
+}
+
+
+/**
+ * 取w-html2docx之htmlToDocx.exe位置
+ *
+ * 注意：w-html2docx內部以「模組載入當下之工作目錄(cwd)」推導exe位置，故此處以同一規則檢查，使事前檢查與實際轉檔行為一致；查無即代表由此cwd執行必定轉檔失敗。
+ *
+ * @returns {String} 回傳exe位置字串，查無則回傳空字串
+ * @example
+ *
+ * console.log(getFpExe())
+ * // => 'C:\\proj\\node_modules\\w-html2docx\\src\\htmlToDocx.exe'
+ *
+ */
+function getFpExe() {
+    let fdSrv = path.resolve() //= process.cwd(), 與 w-html2docx 內部同規則
+    let fps = [
+        path.resolve(fdSrv, 'src/htmlToDocx.exe'),
+        path.resolve(fdSrv, 'node_modules/w-html2docx/src/htmlToDocx.exe'),
+    ]
+    for (let fp of fps) {
+        if (fsIsFile(fp)) {
+            return fp
+        }
+    }
+    return ''
+}
+
+
+/**
+ * 檢查本機是否具備docx轉檔條件(Windows且轉檔器存在)
+ *
+ * 注意：僅代表環境條件成立，不代表Word確實可被調用；後者須實際轉一份小檔驗證。
+ *
+ * @returns {Object} 回傳狀態物件{platform,isWindows,cwd,exePath,exeFound,ready}
+ * @example
+ *
+ * console.log(checkDocxReady())
+ * // => { platform: 'win32', isWindows: true, cwd: '...', exePath: '...', exeFound: true, ready: true }
+ *
+ */
+function checkDocxReady() {
+    let fpExe = getFpExe()
+    return {
+        platform: process.platform,
+        isWindows: process.platform === 'win32',
+        cwd: path.resolve(),
+        exePath: fpExe,
+        exeFound: fpExe !== '',
+        ready: process.platform === 'win32' &amp;&amp; fpExe !== '',
+    }
+}
+
+
+/**
+ * 取安全檔名主體
+ *
+ * 移除路徑成分、常見副檔名與跨平台非法字元，避免路徑穿越與寫檔失敗；無效輸入回傳'output'。
+ *
+ * @param {String} name 輸入檔名字串
+ * @returns {String} 回傳安全檔名主體字串
+ * @example
+ *
+ * console.log(toSafeName('../report/報告R00.01.md'))
+ * // => '報告R00.01'
+ *
+ * console.log(toSafeName(''))
+ * // => 'output'
+ *
+ */
+function toSafeName(name) {
+    let s = ''
+    if (isstr(name)) {
+        s = name.trim()
+    }
+    if (s === '') {
+        return 'output'
+    }
+    s = path.basename(s) //去除任何路徑成分
+    s = s.replace(/\.(md|markdown|html|htm|docx)$/i, '') //去除常見副檔名
+    s = s.replace(/[\\/:*?"&lt;>|\r\n\t]/g, '_') //Windows 非法字元
+    s = s.replace(/^\.+/, '') //去除開頭點號(避免隱藏檔與相對路徑)
+    s = s.trim()
+    if (s === '') {
+        return 'output'
+    }
+    return s.slice(0, 120)
+}
+
+
+//checkAssetPath: 單一相對路徑之落點檢查
+//why: 路徑可能來自外部輸入, 須以絕對路徑比對且尾端補分隔字元, 避免同前綴之兄弟資料夾被放行
+function checkAssetPath(dirJob, rp, pOri) {
+
+    //拒絕絕對路徑(含磁碟機代號與 UNC)
+    if (/^[a-zA-Z]:/.test(rp) || rp.startsWith('/') || rp.startsWith('//')) {
+        throw new Error(`asset.path must be a relative path: ${pOri}`)
+    }
+
+    //落點檢查
+    let fp = path.resolve(dirJob, rp)
+    let base = path.resolve(dirJob) + path.sep
+    if (!fp.startsWith(base)) {
+        throw new Error(`asset.path is outside the working folder: ${pOri}`)
+    }
+
+    return fp
+}
+
+
+/**
+ * 解析資產之相對路徑並防護路徑穿越
+ *
+ * md內之圖片路徑可能為URL編碼(中文或空白)，而轉檔器係以md內之原字串組路徑取圖；故原字串與解碼後字串不同時回傳兩者，供呼叫端寫入同一內容確保圖片必能被解析。
+ *
+ * @param {String} dirJob 輸入工作資料夾位置字串
+ * @param {String} p 輸入資產相對路徑字串
+ * @returns {Array} 回傳實際寫入之絕對路徑陣列
+ * @example
+ *
+ * console.log(resolveAssetPaths('C:\\job', 'pics/%E5%9C%96.png'))
+ * // => [ 'C:\\job\\pics\\%E5%9C%96.png', 'C:\\job\\pics\\圖.png' ]
+ *
+ */
+function resolveAssetPaths(dirJob, p) {
+
+    //raw
+    let raw = ''
+    if (isstr(p)) {
+        raw = p.trim().replace(/\\/g, '/')
+    }
+    if (raw === '') {
+        throw new Error('asset.path is empty')
+    }
+
+    //解碼; 非法 percent 序列則視為未編碼
+    let dec = raw
+    try {
+        dec = decodeURIComponent(raw)
+    }
+    catch (err) {
+        dec = raw
+    }
+
+    let rps = (raw === dec) ? [raw] : [raw, dec]
+    return rps.map((rp) => checkAssetPath(dirJob, rp, p))
+}
+
+
+/**
+ * 將夾帶之資產(圖片等)還原至工作資料夾
+ *
+ * 使md內之相對路徑得以解析；base64容許data URI形式。
+ *
+ * @param {String} dirJob 輸入工作資料夾位置字串
+ * @param {Array} assets 輸入資產陣列，格式[{path,base64}]，亦接受contentBase64欄位
+ * @returns {Integer} 回傳寫入之資產數整數
+ * @example
+ *
+ * let n = writeAssets('C:\\job', [{ path: 'pics/圖.png', base64: '…' }])
+ * // => 1
+ *
+ */
+function writeAssets(dirJob, assets) {
+    let n = 0
+    if (!isarr(assets)) {
+        return n
+    }
+    for (let v of assets) {
+        let p = get(v, 'path', '')
+        let fps = resolveAssetPaths(dirJob, p)
+        let b64 = get(v, 'base64', '')
+        if (!isestr(b64)) {
+            b64 = get(v, 'contentBase64', '')
+        }
+        if (!isestr(b64)) {
+            throw new Error(`asset.base64 is empty: ${p}`)
+        }
+        b64 = b64.replace(/^data:[^;]+;base64,/, '') //容許 data URI 形式
+        let buf = Buffer.from(b64, 'base64')
+        for (let fp of fps) {
+            fs.mkdirSync(path.dirname(fp), { recursive: true })
+            fs.writeFileSync(fp, buf)
+        }
+        n++
+    }
+    return n
+}
+
+
+/**
+ * 清除工作資料夾內逾時未刪之作業夾(前綴job_)
+ *
+ * 工作資料夾不存在時自動建立。
+ *
+ * @param {String} dirWork 輸入工作資料夾位置字串
+ * @param {Object} [opt={}] 輸入設定物件，預設{}
+ * @param {Number} [opt.msAge=21600000] 輸入視為逾時之毫秒數，預設6小時(21600000)
+ * @returns {Integer} 回傳刪除之作業夾數整數
+ * @example
+ *
+ * let n = cleanWorkDir('./tmp', { msAge: 3600 * 1000 })
+ * // => 2
+ *
+ */
+function cleanWorkDir(dirWork, opt = {}) {
+
+    //check
+    if (!isestr(dirWork)) {
+        return 0
+    }
+
+    //msAge
+    let msAge = get(opt, 'msAge', null)
+    if (!ispnum(msAge)) {
+        msAge = 6 * 3600 * 1000
+    }
+    msAge = cdbl(msAge)
+
+    if (!fsIsFolder(dirWork)) {
+        fs.mkdirSync(dirWork, { recursive: true })
+        return 0
+    }
+    let n = 0
+    let msNow = Date.now()
+    for (let fn of fs.readdirSync(dirWork)) {
+        if (!fn.startsWith('job_')) {
+            continue
+        }
+        let fp = path.resolve(dirWork, fn)
+        try {
+            let st = fs.statSync(fp)
+            if (msNow - st.mtimeMs > msAge) {
+                fs.rmSync(fp, { recursive: true, force: true })
+                n++
+            }
+        }
+        catch (err) {
+            //忽略無法處理者
+        }
+    }
+    return n
+}
+
+
+/**
+ * 轉譯資產缺漏之錯誤訊息
+ *
+ * 底層僅回原始路徑訊息(且含內部工作夾路徑)，此處改為可行動之提示並隱去工作路徑；非資產缺漏訊息原樣回傳。
+ *
+ * @param {String} msg 輸入原始錯誤訊息字串
+ * @returns {String} 回傳轉譯後錯誤訊息字串
+ * @example
+ *
+ * console.log(transErrAsset('fp[C:/tmp/job_1/pics/a.png] does not exist'))
+ * // => 'Failed to convert md to html: the referenced file (pics/a.png) does not exist, please make sure it is included in assets'
+ *
+ */
+function transErrAsset(msg) {
+    if (!isstr(msg)) {
+        return toErrText(msg)
+    }
+    let mt = msg.match(/job_[^\\/]+[\\/](.+?)\]/)
+    if (/does not exist/i.test(msg) &amp;&amp; mt) {
+        return `Failed to convert md to html: the referenced file (${mt[1].replace(/\\/g, '/')}) does not exist, please make sure it is included in assets`
+    }
+    return msg
+}
+
+
+export {
+    mimeHtml,
+    mimeDocx,
+    toErrText,
+    retryBusy,
+    runExclusive,
+    getQueueSize,
+    getFpExe,
+    checkDocxReady,
+    toSafeName,
+    resolveAssetPaths,
+    writeAssets,
+    cleanWorkDir,
+    transErrAsset
+}
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+    
+    
+</div>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Tue Sep 01 2026 16:40:03 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+</footer>
+
+<script>prettyPrint();</script>
+<script src="scripts/polyfill.js"></script>
+<script src="scripts/linenumber.js"></script>
+
+
+
+</body>
+</html>

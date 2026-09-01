@@ -1,0 +1,32 @@
+{
+  "name": "w-md2docx",
+  "version": "1.0.0",
+  "main": "dist/w-md2docx.umd.js",
+  "dependencies": {
+    "@hapi/hapi": "^21.4.10",
+    "w-html2docx": "^1.0.23",
+    "w-md2html": "^1.0.47",
+    "wsemi": "^1.8.80"
+  },
+  "devDependencies": {
+    "w-package-tools": "^1.1.15"
+  },
+  "scripts": {
+    "test": "mocha --parallel --timeout 60000",
+    "deploy": "gh-pages -d docs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yuda-lyu/w-md2docx.git"
+  },
+  "keywords": [
+    "package",
+    "tool",
+    "markdown",
+    "html",
+    "docx",
+    "nodejs"
+  ],
+  "author": "yuda-lyu(semisphere)",
+  "license": "MIT"
+}
