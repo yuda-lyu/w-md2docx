@@ -28,7 +28,7 @@ async function rp() {
             'marked-highlight': 'marked-highlight', //w-md2html
             'dompurify': 'dompurify', //w-md2html
             'jsdom': 'jsdom', //w-md2html(動態載入)
-            '@hapi/hapi': '@hapi/hapi', //ApiServer
+            '@hapi/hapi': '@hapi/hapi', //rmApiServer
         },
         external: [
             'path',
@@ -45,7 +45,7 @@ async function rp() {
             'marked-highlight', //w-md2html
             'dompurify', //w-md2html
             'jsdom', //w-md2html(動態載入)
-            '@hapi/hapi', //ApiServer
+            '@hapi/hapi', //rmApiServer
         ],
     })
 

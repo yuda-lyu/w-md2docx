@@ -29,7 +29,7 @@
 <nav >
     
     
-    <h2><a href="index.html">Home</a></h2><h3>Global</h3><ul><li><a href="global.html#ApiServer">ApiServer</a></li><li><a href="global.html#WMd2docx">WMd2docx</a></li><li><a href="global.html#checkDocxReady">checkDocxReady</a></li><li><a href="global.html#cleanWorkDir">cleanWorkDir</a></li><li><a href="global.html#cvMdTo">cvMdTo</a></li><li><a href="global.html#cvMdToDocx">cvMdToDocx</a></li><li><a href="global.html#getFpExe">getFpExe</a></li><li><a href="global.html#getQueueSize">getQueueSize</a></li><li><a href="global.html#health">health</a></li><li><a href="global.html#readAssets">readAssets</a></li><li><a href="global.html#resolveAssetPaths">resolveAssetPaths</a></li><li><a href="global.html#retryBusy">retryBusy</a></li><li><a href="global.html#runExclusive">runExclusive</a></li><li><a href="global.html#scanAssetPaths">scanAssetPaths</a></li><li><a href="global.html#toErrText">toErrText</a></li><li><a href="global.html#toSafeName">toSafeName</a></li><li><a href="global.html#transErrAsset">transErrAsset</a></li><li><a href="global.html#writeAssets">writeAssets</a></li></ul>
+    <h2><a href="index.html">Home</a></h2><h3>Global</h3><ul><li><a href="global.html#WMd2docx">WMd2docx</a></li><li><a href="global.html#checkDocxReady">checkDocxReady</a></li><li><a href="global.html#cleanWorkDir">cleanWorkDir</a></li><li><a href="global.html#cvMdTo">cvMdTo</a></li><li><a href="global.html#cvMdToDocx">cvMdToDocx</a></li><li><a href="global.html#getFpExe">getFpExe</a></li><li><a href="global.html#getQueueSize">getQueueSize</a></li><li><a href="global.html#health">health</a></li><li><a href="global.html#readAssets">readAssets</a></li><li><a href="global.html#resolveAssetPaths">resolveAssetPaths</a></li><li><a href="global.html#retryBusy">retryBusy</a></li><li><a href="global.html#rmApiServer">rmApiServer</a></li><li><a href="global.html#runExclusive">runExclusive</a></li><li><a href="global.html#scanAssetPaths">scanAssetPaths</a></li><li><a href="global.html#toErrText">toErrText</a></li><li><a href="global.html#toSafeName">toSafeName</a></li><li><a href="global.html#transErrAsset">transErrAsset</a></li><li><a href="global.html#writeAssets">writeAssets</a></li></ul>
     
 </nav>
 
@@ -135,7 +135,7 @@
     
     <dt class="tag-description">Description:</dt>
     <dd class="tag-description"><ul class="dummy"><li><p>Markdown轉Docx工具集</p>
-<p>匯整四個入口：cvMdToDocx(md檔轉docx檔)、cvMdTo(md內容轉html/docx之base64)、ApiServer(hapi轉檔服務)、ApiClient(呼叫轉檔服務之用戶端)。</p></li></ul></dd>
+<p>匯整四個入口：cvMdToDocx(md檔轉docx檔)、cvMdTo(md內容轉html/docx之base64)、rmApiServer(hapi轉檔服務)、rmApiClient(呼叫轉檔服務之用戶端)。</p></li></ul></dd>
     
 
     
@@ -182,7 +182,7 @@
 
 <div class="description usertext">
     <p>Markdown轉Docx工具集</p>
-<p>匯整四個入口：cvMdToDocx(md檔轉docx檔)、cvMdTo(md內容轉html/docx之base64)、ApiServer(hapi轉檔服務)、ApiClient(呼叫轉檔服務之用戶端)。</p>
+<p>匯整四個入口：cvMdToDocx(md檔轉docx檔)、cvMdTo(md內容轉html/docx之base64)、rmApiServer(hapi轉檔服務)、rmApiClient(呼叫轉檔服務之用戶端)。</p>
 </div>
 
 
@@ -206,546 +206,6 @@ console.log(r)
 
     
         <h3 class="subsection-title">Methods</h3>
-
-        
-            
-
-    
-
-    <h4 class="name" id="ApiServer"><span class="type-signature type-signature-async">(async) </span>ApiServer<span class="signature">(opt<span class="signature-attributes">opt</span>)</span><span class="type-signature"> &rarr; {Promise}</span></h4>
-
-    
-
-
-
-
-<dl class="details">
-    
-    <dt class="tag-description">Description:</dt>
-    <dd class="tag-description"><ul class="dummy"><li><p>建立並啟動Markdown轉Html/Docx之API服務</p>
-<p>以hapi提供三個端點：GET /api/health(健康檢查與環境狀態)、GET /api/selftest(實跑一次最小轉檔驗證本機Word可用)、POST /api/convert(轉檔主端點，JSON參數同cvMdTo，另可用templateName指定服務端模板或templateBase64夾帶模板；query帶download=1時單一格式直接回傳二進位檔)。</p></li></ul></dd>
-    
-
-    
-    <dt class="tag-source">Source:</dt>
-    <dd class="tag-source"><ul class="dummy"><li>
-        <a href="ApiServer.mjs.html">ApiServer.mjs</a>, <a href="ApiServer.mjs.html#line86">line 86</a>
-    </li></ul></dd>
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-</dl>
-
-
-
-
-
-
-
-
-
-
-
-    <h5 class="h5-examples">Example</h5>
-    
-    <pre class="prettyprint"><code>import ApiServer from 'w-md2docx/src/ApiServer.mjs'
-
-let { server, settings } = await ApiServer({
-    port: 22000,
-    token: '',
-})
-console.log(`listening on ${server.info.uri}`, settings)</code></pre>
-
-
-
-
-    <h5 class="h5-parameters">Parameters:</h5>
-    
-
-<table class="params">
-    <thead>
-    <tr>
-        
-        <th>Name</th>
-        
-
-        <th>Type</th>
-
-        
-        <th>Attributes</th>
-        
-
-        
-        <th>Default</th>
-        
-
-        <th class="last">Description</th>
-    </tr>
-    </thead>
-
-    <tbody>
-    
-
-        <tr>
-            
-                <td class="name"><code>opt</code></td>
-            
-
-            <td class="type">
-            
-                
-<span class="param-type">Object</span>
-
-
-
-            
-            </td>
-
-            
-                <td class="attributes">
-                
-                    &lt;optional><br>
-                
-
-                
-
-                
-                </td>
-            
-
-            
-                <td class="default">
-                
-                    <code>{}</code>
-                
-                </td>
-            
-
-            <td class="description last"><p>輸入設定物件，預設{}</p>
-                <h6>Properties</h6>
-                
-
-<table class="params">
-    <thead>
-    <tr>
-        
-        <th>Name</th>
-        
-
-        <th>Type</th>
-
-        
-        <th>Attributes</th>
-        
-
-        
-        <th>Default</th>
-        
-
-        <th class="last">Description</th>
-    </tr>
-    </thead>
-
-    <tbody>
-    
-
-        <tr>
-            
-                <td class="name"><code>port</code></td>
-            
-
-            <td class="type">
-            
-                
-<span class="param-type">Integer</span>
-
-
-
-            
-            </td>
-
-            
-                <td class="attributes">
-                
-                    &lt;optional><br>
-                
-
-                
-
-                
-                </td>
-            
-
-            
-                <td class="default">
-                
-                    <code>22000</code>
-                
-                </td>
-            
-
-            <td class="description last"><p>輸入服務埠號整數，給0則由系統自動配置(實際埠號見回傳之server.info.port)，預設22000</p></td>
-        </tr>
-
-    
-
-        <tr>
-            
-                <td class="name"><code>host</code></td>
-            
-
-            <td class="type">
-            
-                
-<span class="param-type">String</span>
-
-
-
-            
-            </td>
-
-            
-                <td class="attributes">
-                
-                    &lt;optional><br>
-                
-
-                
-
-                
-                </td>
-            
-
-            
-                <td class="default">
-                
-                    <code>'0.0.0.0'</code>
-                
-                </td>
-            
-
-            <td class="description last"><p>輸入監聽位址字串，預設'0.0.0.0'</p></td>
-        </tr>
-
-    
-
-        <tr>
-            
-                <td class="name"><code>token</code></td>
-            
-
-            <td class="type">
-            
-                
-<span class="param-type">String</span>
-
-
-
-            
-            </td>
-
-            
-                <td class="attributes">
-                
-                    &lt;optional><br>
-                
-
-                
-
-                
-                </td>
-            
-
-            
-                <td class="default">
-                
-                    <code>''</code>
-                
-                </td>
-            
-
-            <td class="description last"><p>輸入權杖字串，非空時所有/api/*須帶x-api-token標頭，預設''</p></td>
-        </tr>
-
-    
-
-        <tr>
-            
-                <td class="name"><code>maxMb</code></td>
-            
-
-            <td class="type">
-            
-                
-<span class="param-type">Number</span>
-
-
-
-            
-            </td>
-
-            
-                <td class="attributes">
-                
-                    &lt;optional><br>
-                
-
-                
-
-                
-                </td>
-            
-
-            
-                <td class="default">
-                
-                    <code>256</code>
-                
-                </td>
-            
-
-            <td class="description last"><p>輸入請求大小上限數字，單位MB，預設256</p></td>
-        </tr>
-
-    
-
-        <tr>
-            
-                <td class="name"><code>dirTemplates</code></td>
-            
-
-            <td class="type">
-            
-                
-<span class="param-type">String</span>
-
-
-
-            
-            </td>
-
-            
-                <td class="attributes">
-                
-                    &lt;optional><br>
-                
-
-                
-
-                
-                </td>
-            
-
-            
-                <td class="default">
-                
-                    <code>''</code>
-                
-                </td>
-            
-
-            <td class="description last"><p>輸入docx模板資料夾位置字串，未給則用本套件src/templates，預設''</p></td>
-        </tr>
-
-    
-
-        <tr>
-            
-                <td class="name"><code>dirWork</code></td>
-            
-
-            <td class="type">
-            
-                
-<span class="param-type">String</span>
-
-
-
-            
-            </td>
-
-            
-                <td class="attributes">
-                
-                    &lt;optional><br>
-                
-
-                
-
-                
-                </td>
-            
-
-            
-                <td class="default">
-                
-                    <code>''</code>
-                
-                </td>
-            
-
-            <td class="description last"><p>輸入工作資料夾位置字串，未給則用系統暫存夾下之w-md2docx，預設''</p></td>
-        </tr>
-
-    
-
-        <tr>
-            
-                <td class="name"><code>templateDef</code></td>
-            
-
-            <td class="type">
-            
-                
-<span class="param-type">String</span>
-
-
-
-            
-            </td>
-
-            
-                <td class="attributes">
-                
-                    &lt;optional><br>
-                
-
-                
-
-                
-                </td>
-            
-
-            
-                <td class="default">
-                
-                    <code>'temp_tpc.docx'</code>
-                
-                </td>
-            
-
-            <td class="description last"><p>輸入預設模板檔名字串，預設'temp_tpc.docx'</p></td>
-        </tr>
-
-    
-
-        <tr>
-            
-                <td class="name"><code>autoStart</code></td>
-            
-
-            <td class="type">
-            
-                
-<span class="param-type">Boolean</span>
-
-
-
-            
-            </td>
-
-            
-                <td class="attributes">
-                
-                    &lt;optional><br>
-                
-
-                
-
-                
-                </td>
-            
-
-            
-                <td class="default">
-                
-                    <code>true</code>
-                
-                </td>
-            
-
-            <td class="description last"><p>輸入是否立即啟動服務布林值，預設true</p></td>
-        </tr>
-
-    
-    </tbody>
-</table>
-
-            </td>
-        </tr>
-
-    
-    </tbody>
-</table>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-<h5 class="h5-returns">Returns:</h5>
-
-        
-<div class="param-desc">
-    <p>回傳Promise，resolve回傳{server,settings,getState,stop}，其中server為hapi實例，getState為取環境狀態之async函數，stop為停止服務之async函數，reject回傳錯誤訊息</p>
-</div>
-
-
-
-<dl class="param-type">
-    <dt>
-        Type
-    </dt>
-    <dd>
-        
-<span class="param-type">Promise</span>
-
-
-
-    </dd>
-</dl>
-
-    
-
-
 
         
             
@@ -1168,14 +628,14 @@ console.log(`listening on ${server.info.uri}`, settings)</code></pre>
 <dl class="details">
     
     <dt class="tag-description">Description:</dt>
-    <dd class="tag-description"><ul class="dummy"><li><p>將本機Markdown檔送至轉檔服務，取回並寫出Html與(或)Docx</p>
-<p>供無Microsoft Word之機器產製docx：讀取本機md與其引用之圖片，送至ApiServer轉檔後寫回本機。連線層失敗會自動重試；逾時與HTTP錯誤不重試。</p></li></ul></dd>
+    <dd class="tag-description"><ul class="dummy"><li><p>Markdown內容轉Html與Docx內容</p>
+<p>與cvMdToDocx之差異：本函數接收Markdown「內容」與其引用之資產(圖片等)，於獨立工作資料夾內還原後轉檔，完成後回傳產物之base64內容並清除工作資料夾。適用於服務端等無實體來源檔之情境；有實體md檔者請直接用cvMdToDocx。</p></li></ul></dd>
     
 
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="ApiClient.mjs.html">ApiClient.mjs</a>, <a href="ApiClient.mjs.html#line216">line 216</a>
+        <a href="cvMdTo.mjs.html">cvMdTo.mjs</a>, <a href="cvMdTo.mjs.html#line46">line 46</a>
     </li></ul></dd>
     
 
@@ -1222,7 +682,630 @@ console.log(`listening on ${server.info.uri}`, settings)</code></pre>
 
     <h5 class="h5-examples">Example</h5>
     
-    <pre class="prettyprint"><code>import { cvMdTo } from 'w-md2docx/src/ApiClient.mjs'
+    <pre class="prettyprint"><code>import cvMdTo from 'w-md2docx/src/cvMdTo.mjs'
+
+let r = await cvMdTo({
+    md: '# 標題\n\n&lt;img src="pics/圖.png" />',
+    name: '報告R00.01',
+    out: 'docx',
+    assets: [{ path: 'pics/圖.png', base64: '…' }],
+})
+console.log(r)
+// => { name: '報告R00.01', out: 'docx', ms: 8342, nAssets: 1, msDocx: 8300, docx: { fileName: '報告R00.01.docx', mime: '…', size: 39856, base64: '…' } }</code></pre>
+
+
+
+
+    <h5 class="h5-parameters">Parameters:</h5>
+    
+
+<table class="params">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+        <th>Attributes</th>
+        
+
+        
+        <th>Default</th>
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>opt</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Object</span>
+
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    <code>{}</code>
+                
+                </td>
+            
+
+            <td class="description last"><p>輸入設定物件，預設{}</p>
+                <h6>Properties</h6>
+                
+
+<table class="params">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+        <th>Attributes</th>
+        
+
+        
+        <th>Default</th>
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>md</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">String</span>
+
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    <code>''</code>
+                
+                </td>
+            
+
+            <td class="description last"><p>輸入Markdown內容字串，與mdBase64二擇一</p></td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>mdBase64</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">String</span>
+
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    <code>''</code>
+                
+                </td>
+            
+
+            <td class="description last"><p>輸入Markdown內容之base64字串，與md二擇一</p></td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>name</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">String</span>
+
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    <code>'output'</code>
+                
+                </td>
+            
+
+            <td class="description last"><p>輸入輸出檔名主體字串(不含副檔名)，將自動移除路徑成分與非法字元，預設'output'</p></td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>out</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">String</span>
+
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    <code>'docx'</code>
+                
+                </td>
+            
+
+            <td class="description last"><p>輸入產出類型字串，可為'html'、'docx'、'both'，預設'docx'</p></td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>assets</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Array</span>
+
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    <code>[]</code>
+                
+                </td>
+            
+
+            <td class="description last"><p>輸入md內引用之相對路徑資產陣列，格式[{path,base64}]，預設[]</p></td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>dirWork</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">String</span>
+
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    <code>''</code>
+                
+                </td>
+            
+
+            <td class="description last"><p>輸入工作資料夾根位置字串，未給則用系統暫存夾下之w-md2docx，預設''</p></td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>fpInTemp</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">String</span>
+
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    <code>''</code>
+                
+                </td>
+            
+
+            <td class="description last"><p>輸入Docx模板檔位置字串，未給則由w-html2docx使用其內建模板，預設''</p></td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>optMd2html</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Object</span>
+
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    <code>{}</code>
+                
+                </td>
+            
+
+            <td class="description last"><p>輸入傳予w-md2html之設定物件，預設{}</p></td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>optHtml2docx</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Object</span>
+
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    <code>{}</code>
+                
+                </td>
+            
+
+            <td class="description last"><p>輸入傳予w-html2docx之設定物件，預設{}</p></td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>keepWork</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Boolean</span>
+
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    <code>false</code>
+                
+                </td>
+            
+
+            <td class="description last"><p>輸入是否保留工作資料夾供除錯布林值，預設false</p></td>
+        </tr>
+
+    
+    </tbody>
+</table>
+
+            </td>
+        </tr>
+
+    
+    </tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5 class="h5-returns">Returns:</h5>
+
+        
+<div class="param-desc">
+    <p>回傳Promise，resolve回傳結果物件{name,out,ms,nAssets,[msDocx],[html],[docx]}，其中html與docx為{fileName,mime,size,base64}，reject回傳錯誤訊息</p>
+</div>
+
+
+
+<dl class="param-type">
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">Promise</span>
+
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+        
+            
+
+    
+
+    <h4 class="name" id="cvMdTo"><span class="type-signature type-signature-async">(async) </span>cvMdTo<span class="signature">(opt<span class="signature-attributes">opt</span>)</span><span class="type-signature"> &rarr; {Promise}</span></h4>
+
+    
+
+
+
+
+<dl class="details">
+    
+    <dt class="tag-description">Description:</dt>
+    <dd class="tag-description"><ul class="dummy"><li><p>將本機Markdown檔送至轉檔服務，取回並寫出Html與(或)Docx</p>
+<p>供無Microsoft Word之機器產製docx：讀取本機md與其引用之圖片，送至rmApiServer轉檔後寫回本機。連線層失敗會自動重試；逾時與HTTP錯誤不重試。</p></li></ul></dd>
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="rmApiClient.mjs.html">rmApiClient.mjs</a>, <a href="rmApiClient.mjs.html#line216">line 216</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+    <h5 class="h5-examples">Example</h5>
+    
+    <pre class="prettyprint"><code>import { cvMdTo } from 'w-md2docx/src/rmApiClient.mjs'
 
 let r = await cvMdTo({
     host: '127.0.0.1',
@@ -1973,629 +2056,6 @@ console.log(r)
 
     
 
-    <h4 class="name" id="cvMdTo"><span class="type-signature type-signature-async">(async) </span>cvMdTo<span class="signature">(opt<span class="signature-attributes">opt</span>)</span><span class="type-signature"> &rarr; {Promise}</span></h4>
-
-    
-
-
-
-
-<dl class="details">
-    
-    <dt class="tag-description">Description:</dt>
-    <dd class="tag-description"><ul class="dummy"><li><p>Markdown內容轉Html與Docx內容</p>
-<p>與cvMdToDocx之差異：本函數接收Markdown「內容」與其引用之資產(圖片等)，於獨立工作資料夾內還原後轉檔，完成後回傳產物之base64內容並清除工作資料夾。適用於服務端等無實體來源檔之情境；有實體md檔者請直接用cvMdToDocx。</p></li></ul></dd>
-    
-
-    
-    <dt class="tag-source">Source:</dt>
-    <dd class="tag-source"><ul class="dummy"><li>
-        <a href="cvMdTo.mjs.html">cvMdTo.mjs</a>, <a href="cvMdTo.mjs.html#line46">line 46</a>
-    </li></ul></dd>
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-</dl>
-
-
-
-
-
-
-
-
-
-
-
-    <h5 class="h5-examples">Example</h5>
-    
-    <pre class="prettyprint"><code>import cvMdTo from 'w-md2docx/src/cvMdTo.mjs'
-
-let r = await cvMdTo({
-    md: '# 標題\n\n&lt;img src="pics/圖.png" />',
-    name: '報告R00.01',
-    out: 'docx',
-    assets: [{ path: 'pics/圖.png', base64: '…' }],
-})
-console.log(r)
-// => { name: '報告R00.01', out: 'docx', ms: 8342, nAssets: 1, msDocx: 8300, docx: { fileName: '報告R00.01.docx', mime: '…', size: 39856, base64: '…' } }</code></pre>
-
-
-
-
-    <h5 class="h5-parameters">Parameters:</h5>
-    
-
-<table class="params">
-    <thead>
-    <tr>
-        
-        <th>Name</th>
-        
-
-        <th>Type</th>
-
-        
-        <th>Attributes</th>
-        
-
-        
-        <th>Default</th>
-        
-
-        <th class="last">Description</th>
-    </tr>
-    </thead>
-
-    <tbody>
-    
-
-        <tr>
-            
-                <td class="name"><code>opt</code></td>
-            
-
-            <td class="type">
-            
-                
-<span class="param-type">Object</span>
-
-
-
-            
-            </td>
-
-            
-                <td class="attributes">
-                
-                    &lt;optional><br>
-                
-
-                
-
-                
-                </td>
-            
-
-            
-                <td class="default">
-                
-                    <code>{}</code>
-                
-                </td>
-            
-
-            <td class="description last"><p>輸入設定物件，預設{}</p>
-                <h6>Properties</h6>
-                
-
-<table class="params">
-    <thead>
-    <tr>
-        
-        <th>Name</th>
-        
-
-        <th>Type</th>
-
-        
-        <th>Attributes</th>
-        
-
-        
-        <th>Default</th>
-        
-
-        <th class="last">Description</th>
-    </tr>
-    </thead>
-
-    <tbody>
-    
-
-        <tr>
-            
-                <td class="name"><code>md</code></td>
-            
-
-            <td class="type">
-            
-                
-<span class="param-type">String</span>
-
-
-
-            
-            </td>
-
-            
-                <td class="attributes">
-                
-                    &lt;optional><br>
-                
-
-                
-
-                
-                </td>
-            
-
-            
-                <td class="default">
-                
-                    <code>''</code>
-                
-                </td>
-            
-
-            <td class="description last"><p>輸入Markdown內容字串，與mdBase64二擇一</p></td>
-        </tr>
-
-    
-
-        <tr>
-            
-                <td class="name"><code>mdBase64</code></td>
-            
-
-            <td class="type">
-            
-                
-<span class="param-type">String</span>
-
-
-
-            
-            </td>
-
-            
-                <td class="attributes">
-                
-                    &lt;optional><br>
-                
-
-                
-
-                
-                </td>
-            
-
-            
-                <td class="default">
-                
-                    <code>''</code>
-                
-                </td>
-            
-
-            <td class="description last"><p>輸入Markdown內容之base64字串，與md二擇一</p></td>
-        </tr>
-
-    
-
-        <tr>
-            
-                <td class="name"><code>name</code></td>
-            
-
-            <td class="type">
-            
-                
-<span class="param-type">String</span>
-
-
-
-            
-            </td>
-
-            
-                <td class="attributes">
-                
-                    &lt;optional><br>
-                
-
-                
-
-                
-                </td>
-            
-
-            
-                <td class="default">
-                
-                    <code>'output'</code>
-                
-                </td>
-            
-
-            <td class="description last"><p>輸入輸出檔名主體字串(不含副檔名)，將自動移除路徑成分與非法字元，預設'output'</p></td>
-        </tr>
-
-    
-
-        <tr>
-            
-                <td class="name"><code>out</code></td>
-            
-
-            <td class="type">
-            
-                
-<span class="param-type">String</span>
-
-
-
-            
-            </td>
-
-            
-                <td class="attributes">
-                
-                    &lt;optional><br>
-                
-
-                
-
-                
-                </td>
-            
-
-            
-                <td class="default">
-                
-                    <code>'docx'</code>
-                
-                </td>
-            
-
-            <td class="description last"><p>輸入產出類型字串，可為'html'、'docx'、'both'，預設'docx'</p></td>
-        </tr>
-
-    
-
-        <tr>
-            
-                <td class="name"><code>assets</code></td>
-            
-
-            <td class="type">
-            
-                
-<span class="param-type">Array</span>
-
-
-
-            
-            </td>
-
-            
-                <td class="attributes">
-                
-                    &lt;optional><br>
-                
-
-                
-
-                
-                </td>
-            
-
-            
-                <td class="default">
-                
-                    <code>[]</code>
-                
-                </td>
-            
-
-            <td class="description last"><p>輸入md內引用之相對路徑資產陣列，格式[{path,base64}]，預設[]</p></td>
-        </tr>
-
-    
-
-        <tr>
-            
-                <td class="name"><code>dirWork</code></td>
-            
-
-            <td class="type">
-            
-                
-<span class="param-type">String</span>
-
-
-
-            
-            </td>
-
-            
-                <td class="attributes">
-                
-                    &lt;optional><br>
-                
-
-                
-
-                
-                </td>
-            
-
-            
-                <td class="default">
-                
-                    <code>''</code>
-                
-                </td>
-            
-
-            <td class="description last"><p>輸入工作資料夾根位置字串，未給則用系統暫存夾下之w-md2docx，預設''</p></td>
-        </tr>
-
-    
-
-        <tr>
-            
-                <td class="name"><code>fpInTemp</code></td>
-            
-
-            <td class="type">
-            
-                
-<span class="param-type">String</span>
-
-
-
-            
-            </td>
-
-            
-                <td class="attributes">
-                
-                    &lt;optional><br>
-                
-
-                
-
-                
-                </td>
-            
-
-            
-                <td class="default">
-                
-                    <code>''</code>
-                
-                </td>
-            
-
-            <td class="description last"><p>輸入Docx模板檔位置字串，未給則由w-html2docx使用其內建模板，預設''</p></td>
-        </tr>
-
-    
-
-        <tr>
-            
-                <td class="name"><code>optMd2html</code></td>
-            
-
-            <td class="type">
-            
-                
-<span class="param-type">Object</span>
-
-
-
-            
-            </td>
-
-            
-                <td class="attributes">
-                
-                    &lt;optional><br>
-                
-
-                
-
-                
-                </td>
-            
-
-            
-                <td class="default">
-                
-                    <code>{}</code>
-                
-                </td>
-            
-
-            <td class="description last"><p>輸入傳予w-md2html之設定物件，預設{}</p></td>
-        </tr>
-
-    
-
-        <tr>
-            
-                <td class="name"><code>optHtml2docx</code></td>
-            
-
-            <td class="type">
-            
-                
-<span class="param-type">Object</span>
-
-
-
-            
-            </td>
-
-            
-                <td class="attributes">
-                
-                    &lt;optional><br>
-                
-
-                
-
-                
-                </td>
-            
-
-            
-                <td class="default">
-                
-                    <code>{}</code>
-                
-                </td>
-            
-
-            <td class="description last"><p>輸入傳予w-html2docx之設定物件，預設{}</p></td>
-        </tr>
-
-    
-
-        <tr>
-            
-                <td class="name"><code>keepWork</code></td>
-            
-
-            <td class="type">
-            
-                
-<span class="param-type">Boolean</span>
-
-
-
-            
-            </td>
-
-            
-                <td class="attributes">
-                
-                    &lt;optional><br>
-                
-
-                
-
-                
-                </td>
-            
-
-            
-                <td class="default">
-                
-                    <code>false</code>
-                
-                </td>
-            
-
-            <td class="description last"><p>輸入是否保留工作資料夾供除錯布林值，預設false</p></td>
-        </tr>
-
-    
-    </tbody>
-</table>
-
-            </td>
-        </tr>
-
-    
-    </tbody>
-</table>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-<h5 class="h5-returns">Returns:</h5>
-
-        
-<div class="param-desc">
-    <p>回傳Promise，resolve回傳結果物件{name,out,ms,nAssets,[msDocx],[html],[docx]}，其中html與docx為{fileName,mime,size,base64}，reject回傳錯誤訊息</p>
-</div>
-
-
-
-<dl class="param-type">
-    <dt>
-        Type
-    </dt>
-    <dd>
-        
-<span class="param-type">Promise</span>
-
-
-
-    </dd>
-</dl>
-
-    
-
-
-
-        
-            
-
-    
-
     <h4 class="name" id="cvMdToDocx"><span class="type-signature type-signature-async">(async) </span>cvMdToDocx<span class="signature">(fpInMd, fpOutDocx, opt<span class="signature-attributes">opt</span>)</span><span class="type-signature"> &rarr; {Promise}</span></h4>
 
     
@@ -3297,7 +2757,7 @@ console.log(r)
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="ApiClient.mjs.html">ApiClient.mjs</a>, <a href="ApiClient.mjs.html#line420">line 420</a>
+        <a href="rmApiClient.mjs.html">rmApiClient.mjs</a>, <a href="rmApiClient.mjs.html#line420">line 420</a>
     </li></ul></dd>
     
 
@@ -3344,7 +2804,7 @@ console.log(r)
 
     <h5 class="h5-examples">Example</h5>
     
-    <pre class="prettyprint"><code>import { health } from 'w-md2docx/src/ApiClient.mjs'
+    <pre class="prettyprint"><code>import { health } from 'w-md2docx/src/rmApiClient.mjs'
 
 let r = await health({ host: '127.0.0.1', port: 22000 })
 console.log(r)
@@ -3715,7 +3175,7 @@ console.log(r)
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="ApiClient.mjs.html">ApiClient.mjs</a>, <a href="ApiClient.mjs.html#line134">line 134</a>
+        <a href="rmApiClient.mjs.html">rmApiClient.mjs</a>, <a href="rmApiClient.mjs.html#line134">line 134</a>
     </li></ul></dd>
     
 
@@ -4406,6 +3866,546 @@ console.log(r)
 
     
 
+    <h4 class="name" id="rmApiServer"><span class="type-signature type-signature-async">(async) </span>rmApiServer<span class="signature">(opt<span class="signature-attributes">opt</span>)</span><span class="type-signature"> &rarr; {Promise}</span></h4>
+
+    
+
+
+
+
+<dl class="details">
+    
+    <dt class="tag-description">Description:</dt>
+    <dd class="tag-description"><ul class="dummy"><li><p>建立並啟動Markdown轉Html/Docx之API服務</p>
+<p>以hapi提供三個端點：GET /api/health(健康檢查與環境狀態)、GET /api/selftest(實跑一次最小轉檔驗證本機Word可用)、POST /api/convert(轉檔主端點，JSON參數同cvMdTo，另可用templateName指定服務端模板或templateBase64夾帶模板；query帶download=1時單一格式直接回傳二進位檔)。</p></li></ul></dd>
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="rmApiServer.mjs.html">rmApiServer.mjs</a>, <a href="rmApiServer.mjs.html#line86">line 86</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+
+
+
+
+
+    <h5 class="h5-examples">Example</h5>
+    
+    <pre class="prettyprint"><code>import rmApiServer from 'w-md2docx/src/rmApiServer.mjs'
+
+let { server, settings } = await rmApiServer({
+    port: 22000,
+    token: '',
+})
+console.log(`listening on ${server.info.uri}`, settings)</code></pre>
+
+
+
+
+    <h5 class="h5-parameters">Parameters:</h5>
+    
+
+<table class="params">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+        <th>Attributes</th>
+        
+
+        
+        <th>Default</th>
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>opt</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Object</span>
+
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    <code>{}</code>
+                
+                </td>
+            
+
+            <td class="description last"><p>輸入設定物件，預設{}</p>
+                <h6>Properties</h6>
+                
+
+<table class="params">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+        <th>Attributes</th>
+        
+
+        
+        <th>Default</th>
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>port</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Integer</span>
+
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    <code>22000</code>
+                
+                </td>
+            
+
+            <td class="description last"><p>輸入服務埠號整數，給0則由系統自動配置(實際埠號見回傳之server.info.port)，預設22000</p></td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>host</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">String</span>
+
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    <code>'0.0.0.0'</code>
+                
+                </td>
+            
+
+            <td class="description last"><p>輸入監聽位址字串，預設'0.0.0.0'</p></td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>token</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">String</span>
+
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    <code>''</code>
+                
+                </td>
+            
+
+            <td class="description last"><p>輸入權杖字串，非空時所有/api/*須帶x-api-token標頭，預設''</p></td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>maxMb</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Number</span>
+
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    <code>256</code>
+                
+                </td>
+            
+
+            <td class="description last"><p>輸入請求大小上限數字，單位MB，預設256</p></td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>dirTemplates</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">String</span>
+
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    <code>''</code>
+                
+                </td>
+            
+
+            <td class="description last"><p>輸入docx模板資料夾位置字串，未給則用本套件src/templates，預設''</p></td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>dirWork</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">String</span>
+
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    <code>''</code>
+                
+                </td>
+            
+
+            <td class="description last"><p>輸入工作資料夾位置字串，未給則用系統暫存夾下之w-md2docx，預設''</p></td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>templateDef</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">String</span>
+
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    <code>'temp_tpc.docx'</code>
+                
+                </td>
+            
+
+            <td class="description last"><p>輸入預設模板檔名字串，預設'temp_tpc.docx'</p></td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>autoStart</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">Boolean</span>
+
+
+
+            
+            </td>
+
+            
+                <td class="attributes">
+                
+                    &lt;optional><br>
+                
+
+                
+
+                
+                </td>
+            
+
+            
+                <td class="default">
+                
+                    <code>true</code>
+                
+                </td>
+            
+
+            <td class="description last"><p>輸入是否立即啟動服務布林值，預設true</p></td>
+        </tr>
+
+    
+    </tbody>
+</table>
+
+            </td>
+        </tr>
+
+    
+    </tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<h5 class="h5-returns">Returns:</h5>
+
+        
+<div class="param-desc">
+    <p>回傳Promise，resolve回傳{server,settings,getState,stop}，其中server為hapi實例，getState為取環境狀態之async函數，stop為停止服務之async函數，reject回傳錯誤訊息</p>
+</div>
+
+
+
+<dl class="param-type">
+    <dt>
+        Type
+    </dt>
+    <dd>
+        
+<span class="param-type">Promise</span>
+
+
+
+    </dd>
+</dl>
+
+    
+
+
+
+        
+            
+
+    
+
     <h4 class="name" id="runExclusive"><span class="type-signature"></span>runExclusive<span class="signature">(fun)</span><span class="type-signature"> &rarr; {Promise}</span></h4>
 
     
@@ -4587,7 +4587,7 @@ console.log(r)
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="ApiClient.mjs.html">ApiClient.mjs</a>, <a href="ApiClient.mjs.html#line81">line 81</a>
+        <a href="rmApiClient.mjs.html">rmApiClient.mjs</a>, <a href="rmApiClient.mjs.html#line81">line 81</a>
     </li></ul></dd>
     
 
@@ -5440,7 +5440,7 @@ console.log(toSafeName(''))
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Tue Sep 01 2026 23:52:38 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Wed Sep 02 2026 16:38:11 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>

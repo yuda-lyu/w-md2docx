@@ -17,8 +17,8 @@ To view documentation or get support, visit [docs](https://yuda-lyu.github.io/w-
 It provides four entries:
 - `cvMdToDocx`: convert a Markdown file to a Docx file.
 - `cvMdTo`: convert Markdown content (with attached assets) to Html/Docx content in base64.
-- `ApiServer`: a hapi service (`GET /api/health`, `GET /api/selftest`, `POST /api/convert`) that wraps `cvMdTo`, so machines without Word can convert through it.
-- `ApiClient`: a client for `ApiServer`, reading a local Markdown file with its images and writing back the converted files.
+- `rmApiServer`: a hapi service (`GET /api/health`, `GET /api/selftest`, `POST /api/convert`) that wraps `cvMdTo`, so machines without Word can convert through it.
+- `rmApiClient`: a client for `rmApiServer`, reading a local Markdown file with its images and writing back the converted files.
 
 ## Installation
 
@@ -68,11 +68,11 @@ test()
 import WMd2docx from 'w-md2docx/src/WMd2docx.mjs'
 
 //server (Windows with Microsoft Word)
-let { server } = await WMd2docx.ApiServer({ port: 22000, token: '' })
+let { server } = await WMd2docx.rmApiServer({ port: 22000, token: '' })
 console.log(`listening on ${server.info.uri}`)
 
 //client (any machine)
-let r = await WMd2docx.ApiClient.cvMdTo({
+let r = await WMd2docx.rmApiClient.cvMdTo({
     host: '127.0.0.1',
     port: 22000,
     fpInMd: './test/report.md',

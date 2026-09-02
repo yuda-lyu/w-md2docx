@@ -14,7 +14,7 @@ import fsIsFile from 'wsemi/src/fsIsFile.mjs'
 import { toErrText } from './utils.mjs'
 
 
-//hostDef, portDef: 服務位置預設值(與 ApiServer 預設埠一致)
+//hostDef, portDef: 服務位置預設值(與 rmApiServer 預設埠一致)
 let hostDef = '127.0.0.1'
 let portDef = 22000
 
@@ -180,7 +180,7 @@ function readAssets(md, dirMd) {
 /**
  * 將本機Markdown檔送至轉檔服務，取回並寫出Html與(或)Docx
  *
- * 供無Microsoft Word之機器產製docx：讀取本機md與其引用之圖片，送至ApiServer轉檔後寫回本機。連線層失敗會自動重試；逾時與HTTP錯誤不重試。
+ * 供無Microsoft Word之機器產製docx：讀取本機md與其引用之圖片，送至rmApiServer轉檔後寫回本機。連線層失敗會自動重試；逾時與HTTP錯誤不重試。
  *
  * @param {Object} [opt={}] 輸入設定物件，預設{}
  * @param {String} [opt.host='127.0.0.1'] 輸入服務主機位址(ip或網域)字串，未給則取環境變數WMD2DOCX_HOST，再無則用'127.0.0.1'，預設'127.0.0.1'
@@ -201,7 +201,7 @@ function readAssets(md, dirMd) {
  * @returns {Promise} 回傳Promise，resolve回傳結果物件{ms,nAssets,template,[html],[docx]}，其中html與docx為{fp,size}，reject回傳錯誤訊息
  * @example
  *
- * import { cvMdTo } from 'w-md2docx/src/ApiClient.mjs'
+ * import { cvMdTo } from 'w-md2docx/src/rmApiClient.mjs'
  *
  * let r = await cvMdTo({
  *     host: '127.0.0.1',
@@ -410,7 +410,7 @@ async function cvMdTo(opt = {}) {
  * @returns {Promise} 回傳Promise，resolve回傳服務端回傳之狀態物件，reject回傳錯誤訊息
  * @example
  *
- * import { health } from 'w-md2docx/src/ApiClient.mjs'
+ * import { health } from 'w-md2docx/src/rmApiClient.mjs'
  *
  * let r = await health({ host: '127.0.0.1', port: 22000 })
  * console.log(r)
@@ -455,7 +455,7 @@ async function health(opt = {}) {
 }
 
 
-let ApiClient = {
+let rmApiClient = {
     cvMdTo,
     health,
     scanAssetPaths,
@@ -464,4 +464,4 @@ let ApiClient = {
 
 
 export { cvMdTo, health, scanAssetPaths, readAssets }
-export default ApiClient
+export default rmApiClient

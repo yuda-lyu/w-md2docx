@@ -1,13 +1,13 @@
 import fs from 'fs'
 import path from 'path'
 import assert from 'assert'
-import ApiServer from '../src/ApiServer.mjs'
+import rmApiServer from '../src/rmApiServer.mjs'
 
 
-//ApiServer: 直打HTTP端點(不經UI); docx相關以html路徵替代, 不需Word
-describe('ApiServer', function() {
+//rmApiServer: 直打HTTP端點(不經UI); docx相關以html路徵替代, 不需Word
+describe('rmApiServer', function() {
 
-    let fdTmp = path.resolve('./tmp/zt_ApiServer')
+    let fdTmp = path.resolve('./tmp/zt_rmApiServer')
     let dirWork = path.resolve(fdTmp, 'work')
     let token = 'tk-test'
     let svgB64 = fs.readFileSync('./test/cocktail.svg').toString('base64')
@@ -24,7 +24,7 @@ describe('ApiServer', function() {
 
     before(async function() {
         fs.mkdirSync(fdTmp, { recursive: true })
-        srv = await ApiServer({ port: 0, host: '127.0.0.1', token, dirWork }) //port 0 由系統配置, 避免並行測試撞埠
+        srv = await rmApiServer({ port: 0, host: '127.0.0.1', token, dirWork }) //port 0 由系統配置, 避免並行測試撞埠
         url = `http://127.0.0.1:${srv.server.info.port}`
     })
 
@@ -169,7 +169,7 @@ describe('ApiServer', function() {
     })
 
     it('opt非法值採預設; autoStart=false不啟動', async function() {
-        let s2 = await ApiServer({ port: 'x', host: '', token: 5, maxMb: -1, templateDef: '', autoStart: false, dirWork: path.resolve(fdTmp, 'work2') })
+        let s2 = await rmApiServer({ port: 'x', host: '', token: 5, maxMb: -1, templateDef: '', autoStart: false, dirWork: path.resolve(fdTmp, 'work2') })
         assert.strict.equal(s2.settings.port, 22000)
         assert.strict.equal(s2.settings.host, '0.0.0.0')
         assert.strict.equal(s2.settings.token, '')
@@ -180,7 +180,7 @@ describe('ApiServer', function() {
     })
 
     it('stop後不再回應', async function() {
-        let s3 = await ApiServer({ port: 0, host: '127.0.0.1', dirWork: path.resolve(fdTmp, 'work3') })
+        let s3 = await rmApiServer({ port: 0, host: '127.0.0.1', dirWork: path.resolve(fdTmp, 'work3') })
         let u3 = `http://127.0.0.1:${s3.server.info.port}`
         let res = await fetch(`${u3}/api/health`)
         assert.strict.equal(res.status, 200) //無token時不需標頭

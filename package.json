@@ -1,6 +1,6 @@
 {
   "name": "w-md2docx",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "main": "dist/w-md2docx.umd.js",
   "dependencies": {
     "@hapi/hapi": "^21.4.10",

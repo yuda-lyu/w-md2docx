@@ -1,11 +1,11 @@
 import fs from 'fs'
 import path from 'path'
 import assert from 'assert'
-import ApiServer from '../src/ApiServer.mjs'
-import ApiClient, { cvMdTo, health, scanAssetPaths, readAssets } from '../src/ApiClient.mjs'
+import rmApiServer from '../src/rmApiServer.mjs'
+import rmApiClient, { cvMdTo, health, scanAssetPaths, readAssets } from '../src/rmApiClient.mjs'
 
 
-describe('ApiClient', function() {
+describe('rmApiClient', function() {
 
     describe('scanAssetPaths(純函數)', function() {
 
@@ -48,7 +48,7 @@ describe('ApiClient', function() {
 
     describe('readAssets(讀本機檔)', function() {
 
-        let fdTmp = path.resolve('./tmp/zt_ApiClient_ra')
+        let fdTmp = path.resolve('./tmp/zt_rmApiClient_ra')
 
         before(function() {
             fs.mkdirSync(path.resolve(fdTmp, 'pics'), { recursive: true })
@@ -81,9 +81,9 @@ describe('ApiClient', function() {
 
     })
 
-    describe('cvMdTo/health(對接ApiServer, html路徑不需Word)', function() {
+    describe('cvMdTo/health(對接rmApiServer, html路徑不需Word)', function() {
 
-        let fdTmp = path.resolve('./tmp/zt_ApiClient')
+        let fdTmp = path.resolve('./tmp/zt_rmApiClient')
         let dirWork = path.resolve(fdTmp, 'work')
         let token = 'tk-client'
         let srv = null
@@ -94,7 +94,7 @@ describe('ApiClient', function() {
 
         before(async function() {
             fs.mkdirSync(fdTmp, { recursive: true })
-            srv = await ApiServer({ port: 0, host, token, dirWork })
+            srv = await rmApiServer({ port: 0, host, token, dirWork })
             port = srv.server.info.port
             url = `http://${host}:${port}`
         })
@@ -107,8 +107,8 @@ describe('ApiClient', function() {
         })
 
         it('default export匯整四函數', function() {
-            assert.strict.deepEqual(Object.keys(ApiClient), ['cvMdTo', 'health', 'scanAssetPaths', 'readAssets'])
-            assert.strict.equal(ApiClient.cvMdTo, cvMdTo)
+            assert.strict.deepEqual(Object.keys(rmApiClient), ['cvMdTo', 'health', 'scanAssetPaths', 'readAssets'])
+            assert.strict.equal(rmApiClient.cvMdTo, cvMdTo)
         })
 
         it('health', async function() {
@@ -131,7 +131,7 @@ describe('ApiClient', function() {
             }
         })
 
-        it('host/port與環境變數皆未給時預設127.0.0.1:22000(與ApiServer預設埠一致)', async function() {
+        it('host/port與環境變數皆未給時預設127.0.0.1:22000(與rmApiServer預設埠一致)', async function() {
             await assert.rejects(health({ token, timeoutMs: 3000 }), (e) => /^Unable to connect to the conversion service http:\/\/127\.0\.0\.1:22000: /.test(e) || /^Invalid response from the conversion service http:\/\/127\.0\.0\.1:22000/.test(e))
         })
 
