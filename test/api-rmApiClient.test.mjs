@@ -7,6 +7,32 @@ import rmApiClient, { cvMdTo, health, scanAssetPaths, readAssets } from '../src/
 
 describe('rmApiClient', function() {
 
+    let fdTmpRoot = path.resolve('./test/_tmp/api-rmApiClient')
+
+    after(function() {
+        fs.rmSync(fdTmpRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 })
+    })
+
+    //withoutEnv: 暫時移除服務位置之環境變數後執行, 使預設值測試不受執行環境影響
+    let withoutEnv = async (fun) => {
+        let keys = ['WMD2DOCX_URL', 'WMD2DOCX_HOST', 'WMD2DOCX_PORT']
+        let kp = {}
+        for (let k of keys) {
+            kp[k] = process.env[k]
+            delete process.env[k]
+        }
+        try {
+            return await fun()
+        }
+        finally {
+            for (let k of keys) {
+                if (kp[k] !== undefined) {
+                    process.env[k] = kp[k]
+                }
+            }
+        }
+    }
+
     describe('scanAssetPaths(純函數)', function() {
 
         it('涵蓋<img src>與![]() , 去重, 保留原字串', function() {
@@ -48,16 +74,12 @@ describe('rmApiClient', function() {
 
     describe('readAssets(讀本機檔)', function() {
 
-        let fdTmp = path.resolve('./tmp/zt_rmApiClient_ra')
+        let fdTmp = path.resolve(fdTmpRoot, 'readAssets')
 
         before(function() {
             fs.mkdirSync(path.resolve(fdTmp, 'pics'), { recursive: true })
             fs.writeFileSync(path.resolve(fdTmp, 'pics/圖.png'), 'IMG')
             fs.writeFileSync(path.resolve(fdTmp, 'pics/a b.png'), 'IMG2')
-        })
-
-        after(function() {
-            fs.rmSync(fdTmp, { recursive: true, force: true })
         })
 
         it('URL編碼引用可對應解碼後實體檔, path保留原字串', function() {
@@ -83,27 +105,25 @@ describe('rmApiClient', function() {
 
     describe('cvMdTo/health(對接rmApiServer, html路徑不需Word)', function() {
 
-        let fdTmp = path.resolve('./tmp/zt_rmApiClient')
+        let fdTmp = path.resolve(fdTmpRoot, 'service')
         let dirWork = path.resolve(fdTmp, 'work')
         let token = 'tk-client'
         let srv = null
         let host = '127.0.0.1'
-        let port = 0
-        let url = ''
+        let port = 8211 //固定埠(8000以上), 與api-rmApiServer(8201, 8202)錯開以免並行撞埠
+        let url = `http://${host}:${port}`
+        let hostInvalid = 'nonexistent.invalid' //.invalid為保留網域(RFC 2606)必定解析失敗, 使預設埠之驗證不受本機22000埠是否有服務影響
         let fpOutHtml = path.resolve(fdTmp, 'out/report.html')
 
         before(async function() {
             fs.mkdirSync(fdTmp, { recursive: true })
-            srv = await rmApiServer({ port: 0, host, token, dirWork })
-            port = srv.server.info.port
-            url = `http://${host}:${port}`
+            srv = await rmApiServer({ port, host, token, dirWork })
         })
 
         after(async function() {
             if (srv) {
                 await srv.stop()
             }
-            fs.rmSync(fdTmp, { recursive: true, force: true })
         })
 
         it('default export匯整四函數', function() {
@@ -131,12 +151,17 @@ describe('rmApiClient', function() {
             }
         })
 
-        it('host/port與環境變數皆未給時預設127.0.0.1:22000(與rmApiServer預設埠一致)', async function() {
-            await assert.rejects(health({ token, timeoutMs: 3000 }), (e) => /^Unable to connect to the conversion service http:\/\/127\.0\.0\.1:22000: /.test(e) || /^Invalid response from the conversion service http:\/\/127\.0\.0\.1:22000/.test(e))
+        it('host與環境變數皆未給時預設127.0.0.1', async function() {
+            let r = await withoutEnv(() => health({ port, token })) //僅給port, 須連到127.0.0.1上之測試服務
+            assert.strict.equal(r.success, true)
+        })
+
+        it('port與環境變數皆未給時預設22000(與rmApiServer預設埠一致)', async function() {
+            await withoutEnv(() => assert.rejects(health({ host: hostInvalid, token, timeoutMs: 3000 }), (e) => String(e).startsWith(`Unable to connect to the conversion service http://${hostInvalid}:22000: `)))
         })
 
         it('port非正整數視為未給', async function() {
-            await assert.rejects(health({ host, port: 'x', token, timeoutMs: 3000 }), (e) => /http:\/\/127\.0\.0\.1:22000/.test(e))
+            await withoutEnv(() => assert.rejects(health({ host: hostInvalid, port: 'x', token, timeoutMs: 3000 }), (e) => String(e).startsWith(`Unable to connect to the conversion service http://${hostInvalid}:22000: `)))
         })
 
         it('url給予時覆寫host/port', async function() {

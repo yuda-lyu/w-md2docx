@@ -7,10 +7,12 @@ import rmApiServer from '../src/rmApiServer.mjs'
 //rmApiServer: 直打HTTP端點(不經UI); docx相關以html路徵替代, 不需Word
 describe('rmApiServer', function() {
 
-    let fdTmp = path.resolve('./tmp/zt_rmApiServer')
+    let fdTmp = path.resolve('./test/_tmp/api-rmApiServer')
     let dirWork = path.resolve(fdTmp, 'work')
     let token = 'tk-test'
     let svgB64 = fs.readFileSync('./test/cocktail.svg').toString('base64')
+    let portMain = 8201 //固定埠(8000以上), 與api-rmApiClient(8211)錯開以免並行撞埠
+    let portStop = 8202
     let srv = null
     let url = ''
 
@@ -24,19 +26,20 @@ describe('rmApiServer', function() {
 
     before(async function() {
         fs.mkdirSync(fdTmp, { recursive: true })
-        srv = await rmApiServer({ port: 0, host: '127.0.0.1', token, dirWork }) //port 0 由系統配置, 避免並行測試撞埠
-        url = `http://127.0.0.1:${srv.server.info.port}`
+        srv = await rmApiServer({ port: portMain, host: '127.0.0.1', token, dirWork })
+        url = `http://127.0.0.1:${portMain}`
     })
 
     after(async function() {
         if (srv) {
             await srv.stop()
         }
-        fs.rmSync(fdTmp, { recursive: true, force: true })
+        fs.rmSync(fdTmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 })
     })
 
     it('回傳物件與settings', function() {
-        assert.strict.equal(typeof srv.server.info.port, 'number')
+        assert.strict.equal(srv.server.info.port, portMain)
+        assert.strict.equal(srv.settings.port, portMain)
         assert.strict.equal(typeof srv.getState, 'function')
         assert.strict.equal(typeof srv.stop, 'function')
         assert.strict.equal(srv.settings.host, '127.0.0.1')
@@ -180,8 +183,8 @@ describe('rmApiServer', function() {
     })
 
     it('stop後不再回應', async function() {
-        let s3 = await rmApiServer({ port: 0, host: '127.0.0.1', dirWork: path.resolve(fdTmp, 'work3') })
-        let u3 = `http://127.0.0.1:${s3.server.info.port}`
+        let s3 = await rmApiServer({ port: portStop, host: '127.0.0.1', dirWork: path.resolve(fdTmp, 'work3') })
+        let u3 = `http://127.0.0.1:${portStop}`
         let res = await fetch(`${u3}/api/health`)
         assert.strict.equal(res.status, 200) //無token時不需標頭
         await s3.stop()

@@ -7,7 +7,7 @@ import cvMdTo from '../src/cvMdTo.mjs'
 //cvMdTo之html路徑(不需Microsoft Word); docx路徑於unit-cvMdToDocx以Word守門測試
 describe('cvMdTo', function() {
 
-    let fdTmp = path.resolve('./tmp/zt_cvMdTo')
+    let fdTmp = path.resolve('./test/_tmp/unit-cvMdTo')
     let svgB64 = fs.readFileSync('./test/cocktail.svg').toString('base64')
     let toHtml = (r) => Buffer.from(r.html.base64, 'base64').toString('utf8')
 
@@ -16,7 +16,7 @@ describe('cvMdTo', function() {
     })
 
     after(function() {
-        fs.rmSync(fdTmp, { recursive: true, force: true })
+        fs.rmSync(fdTmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 })
     })
 
     it('out=html: 回傳物件形狀與檔名', async function() {

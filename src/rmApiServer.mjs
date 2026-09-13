@@ -206,9 +206,9 @@ async function rmApiServer(opt = {}) {
             platform: rd.platform,
             node: process.version,
             cwd: rd.cwd,
-            exeFound: rd.exeFound,
+            exeFound: rd.exeFound, //轉檔器目前是否已存在(診斷用), false 時於首次轉檔由 w-html2docx 自動下載
             exePath: rd.exePath,
-            docxReady: rd.ready, //僅代表環境具備條件, 實際 Word 可用性須以 /api/selftest 驗證
+            docxReady: rd.ready, //僅代表環境具備條件, 轉檔器可否下載與 Word 可用性須以 /api/selftest 實轉驗證
             templateDefault: getFpTemplateDef(),
             templates: listTemplates(),
             dirTemplates,

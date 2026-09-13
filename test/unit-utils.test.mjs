@@ -23,14 +23,14 @@ let sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 describe('utils', function() {
 
-    let fdTmp = path.resolve('./tmp/zt_utils')
+    let fdTmp = path.resolve('./test/_tmp/unit-utils')
 
     before(function() {
         fs.mkdirSync(fdTmp, { recursive: true })
     })
 
     after(function() {
-        fs.rmSync(fdTmp, { recursive: true, force: true })
+        fs.rmSync(fdTmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 })
     })
 
     describe('mime', function() {
@@ -182,7 +182,24 @@ describe('utils', function() {
             assert.strict.equal(r.cwd, path.resolve())
             assert.strict.equal(r.exePath, getFpExe())
             assert.strict.equal(r.exeFound, r.exePath !== '')
-            assert.strict.equal(r.ready, r.isWindows && r.exeFound)
+            assert.strict.equal(r.ready, r.isWindows) //ready不以轉檔器存在為條件(缺檔於首次轉檔時由w-html2docx自動下載)
+        })
+
+        it('轉檔器缺檔時exeFound為false但ready不因此為false', function() {
+            let fdCwd = path.resolve(fdTmp, 'noexe') //其下src/與node_modules/w-html2docx/src/皆無htmlToDocx.exe
+            fs.mkdirSync(fdCwd, { recursive: true })
+            let cwdOri = process.cwd()
+            let r = null
+            process.chdir(fdCwd)
+            try {
+                r = checkDocxReady()
+            }
+            finally {
+                process.chdir(cwdOri)
+            }
+            assert.strict.equal(r.exePath, '')
+            assert.strict.equal(r.exeFound, false)
+            assert.strict.equal(r.ready, process.platform === 'win32')
         })
 
     })

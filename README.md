@@ -14,6 +14,8 @@ To view documentation or get support, visit [docs](https://yuda-lyu.github.io/w-
 ## Core
 > `w-md2docx` is based on `w-md2html` (Markdown to Html) and `w-html2docx` (Html to Docx via `win32com` of `Microsoft Word`), so the docx conversion only runs in `Windows` with `Microsoft Word` installed.
 
+> The converter `htmlToDocx.exe` is located and, when absent (e.g. npm blocked the `postinstall` script of `w-html2docx`), downloaded automatically by `w-html2docx` on the first docx conversion. It is resolved from the current working directory, so run your program from the project root that contains `node_modules/w-html2docx`, with network access for the first conversion.
+
 It provides four entries:
 - `cvMdToDocx`: convert a Markdown file to a Docx file.
 - `cvMdTo`: convert Markdown content (with attached assets) to Html/Docx content in base64.

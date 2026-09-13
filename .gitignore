@@ -4,6 +4,7 @@ CLAUDE*.md
 AGENTS*.md
 .env
 tmp
+test/_tmp
 .opencode
 .claude
 
