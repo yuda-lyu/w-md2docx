@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    
+    <meta charset="utf-8">
+    <title>docxKeep.mjs - Documentation</title>
+    
+    
+    <script src="scripts/prettify/prettify.js"></script>
+    <script src="scripts/prettify/lang-css.js"></script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc.css">
+    <script src="scripts/nav.js" defer></script>
+    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body>
+
+<input type="checkbox" id="nav-trigger" class="nav-trigger" />
+<label for="nav-trigger" class="navicon-button x">
+  <div class="navicon"></div>
+</label>
+
+<label for="nav-trigger" class="overlay"></label>
+
+<nav >
+    
+    
+    <h2><a href="index.html">Home</a></h2><h3>Global</h3><ul><li><a href="global.html#WMd2docx">WMd2docx</a></li><li><a href="global.html#addDocxToc">addDocxToc</a></li><li><a href="global.html#addKeepLines">addKeepLines</a></li><li><a href="global.html#addKeepNext">addKeepNext</a></li><li><a href="global.html#checkDocxReady">checkDocxReady</a></li><li><a href="global.html#checkDocxToc">checkDocxToc</a></li><li><a href="global.html#cleanWorkDir">cleanWorkDir</a></li><li><a href="global.html#createEdits">createEdits</a></li><li><a href="global.html#cvMdTo">cvMdTo</a></li><li><a href="global.html#cvMdToDocx">cvMdToDocx</a></li><li><a href="global.html#esc">esc</a></li><li><a href="global.html#escRe">escRe</a></li><li><a href="global.html#findCaptions">findCaptions</a></li><li><a href="global.html#getFpExe">getFpExe</a></li><li><a href="global.html#getFpVbs">getFpVbs</a></li><li><a href="global.html#getQueueSize">getQueueSize</a></li><li><a href="global.html#hasObj">hasObj</a></li><li><a href="global.html#health">health</a></li><li><a href="global.html#isBlank">isBlank</a></li><li><a href="global.html#normKeepReq">normKeepReq</a></li><li><a href="global.html#normLabels">normLabels</a></li><li><a href="global.html#normReqOpt">normReqOpt</a></li><li><a href="global.html#normTocOpt">normTocOpt</a></li><li><a href="global.html#normTocReq">normTocReq</a></li><li><a href="global.html#pPrOf">pPrOf</a></li><li><a href="global.html#planKeepNext">planKeepNext</a></li><li><a href="global.html#prepDocxKeep">prepDocxKeep</a></li><li><a href="global.html#prepDocxToc">prepDocxToc</a></li><li><a href="global.html#readAssets">readAssets</a></li><li><a href="global.html#resolveAssetPaths">resolveAssetPaths</a></li><li><a href="global.html#retryBusy">retryBusy</a></li><li><a href="global.html#rmApiServer">rmApiServer</a></li><li><a href="global.html#runExclusive">runExclusive</a></li><li><a href="global.html#scanAssetPaths">scanAssetPaths</a></li><li><a href="global.html#scanParas">scanParas</a></li><li><a href="global.html#tElem">tElem</a></li><li><a href="global.html#textOf">textOf</a></li><li><a href="global.html#toErrText">toErrText</a></li><li><a href="global.html#toSafeName">toSafeName</a></li><li><a href="global.html#transErrAsset">transErrAsset</a></li><li><a href="global.html#unesc">unesc</a></li><li><a href="global.html#warnCapsLike">warnCapsLike</a></li><li><a href="global.html#writeAssets">writeAssets</a></li><li><a href="global.html#writeDocx">writeDocx</a></li></ul>
+    
+</nav>
+
+<div id="main">
+    
+    <h1 class="page-title">docxKeep.mjs</h1>
+    
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>import get from 'lodash-es/get.js'
+import { unzipSync, strFromU8 } from 'fflate'
+import isobj from 'wsemi/src/isobj.mjs'
+import isestr from 'wsemi/src/isestr.mjs'
+import { escRe, textOf, pPrOf, scanParas, createEdits, writeDocx } from './docxXml.mjs'
+
+
+//圖名、表名之預設標籤(中文報告)
+let labelsDef = { fig: '圖', tab: '表' }
+
+
+/**
+ * 整理圖名表名之標籤
+ *
+ * fig與tab須為不含空白、引號與反斜線之非空字串(添加目錄時其亦為SEQ欄位之識別名稱，並置於TOC欄位之\c參數內)，否則該項退回預設；兩者相同時無法區分圖名與表名，皆退回預設。
+ *
+ * @param {Object} [labels={}] 輸入標籤物件{fig,tab}，預設{}
+ * @returns {Object} 回傳標籤物件{fig,tab}
+ */
+function normLabels(labels = {}) {
+    let isLabel = (v) => isestr(v) &amp;&amp; !/[\s"\\]/.test(v)
+    let r = {
+        fig: get(labels, 'fig', ''),
+        tab: get(labels, 'tab', ''),
+    }
+    for (let k of ['fig', 'tab']) {
+        if (!isLabel(r[k])) {
+            r[k] = labelsDef[k]
+        }
+    }
+    if (r.fig === r.tab) {
+        r = { ...labelsDef }
+    }
+    return r
+}
+
+
+/**
+ * 判斷段落是否含圖片或內嵌物件
+ *
+ * @param {Object} p 輸入段落(scanParas之元素)
+ * @returns {Boolean} 回傳是否含圖片或內嵌物件
+ */
+function hasObj(p) {
+    return /&lt;w:drawing\b|&lt;w:pict\b|&lt;w:object\b/.test(p.xml)
+}
+
+
+/**
+ * 判斷段落是否為可越過之空段落
+ *
+ * 不在表格內、無文字、無圖片與物件、不含分頁或分欄符號與分節設定、不設段落前分頁者為空段落(如w-md2html之換行標記轉檔後之段落)，判斷圖名表名與其圖表是否相鄰時可越過。
+ *
+ * @param {Object} p 輸入段落(scanParas之元素)
+ * @returns {Boolean} 回傳是否為可越過之空段落
+ */
+function isBlank(p) {
+    return !p.inTbl &amp;&amp; textOf(p.xml).trim() === '' &amp;&amp; !hasObj(p) &amp;&amp; !/&lt;w:br\b[^>]*w:type="(?:page|column)"|&lt;w:sectPr\b|&lt;w:pageBreakBefore\b/.test(p.xml)
+}
+
+
+/**
+ * 找出圖名與表名
+ *
+ * 圖名、表名為段首「標籤＋編號＋空白」之段落(標籤與編號間可有空白)；段首為標籤與編號而其後非空白者(如「圖1：名稱」)不視為圖名表名，另行列出供提示。
+ *
+ * @param {Array} tops 輸入候選段落陣列(scanParas之元素，呼叫端須先排除表格內等不適用之段落)
+ * @param {Object} labels 輸入標籤物件{fig,tab}
+ * @returns {Object} 回傳{caps,capsLike}，caps之元素為段落另加{kind,num,s,e,text}(kind為'fig'或'tab'，s與e為編號於段落文字之起訖位置)，capsLike為疑似圖名表名之段落文字陣列
+ */
+function findCaptions(tops, labels) {
+    let reCap = new RegExp(`^(${escRe(labels.fig)}|${escRe(labels.tab)})(\\s*)(\\d+)\\s`)
+    let reCapLike = new RegExp(`^(?:${escRe(labels.fig)}|${escRe(labels.tab)})\\s*\\d+`)
+    let caps = []
+    let capsLike = []
+    for (let p of tops) {
+        let t = textOf(p.xml)
+        let m = t.match(reCap)
+        if (m) {
+            let kind = m[1] === labels.fig ? 'fig' : 'tab'
+            let s = m[1].length + m[2].length
+            caps.push({ ...p, kind, num: Number(m[3]), s, e: s + m[3].length, text: t.trim() })
+        }
+        else if (reCapLike.test(t)) {
+            capsLike.push(t.trim())
+        }
+    }
+    return { caps, capsLike }
+}
+
+
+/**
+ * 產生疑似圖名表名之提示訊息
+ *
+ * @param {Array} capsLike 輸入findCaptions之capsLike
+ * @returns {String} 回傳提示訊息字串(含筆數與前3例)
+ */
+function warnCapsLike(capsLike) {
+    return `${capsLike.length} paragraph(s) start with a figure or table label and a number that is not followed by a space, so they are not treated as captions: ${capsLike.slice(0, 3).map((t) => t.slice(0, 30)).join('; ')}`
+}
+
+
+/**
+ * 段落設為段落內不分頁(w:keepLines)
+ *
+ * 已有者原樣回傳；新增時依pPr子元素順序置於pStyle、keepNext之後。
+ *
+ * @param {String} p 輸入段落XML字串
+ * @returns {String} 回傳段落XML字串
+ */
+function addKeepLines(p) {
+    let pPr = pPrOf(p)
+    if (/&lt;w:keepLines\/>|&lt;w:keepLines w:val="(?:1|true|on)"\/>/.test(pPr)) {
+        return p
+    }
+    if (/&lt;w:keepLines\b/.test(pPr)) {
+        return p.replace(/&lt;w:keepLines\b[^>]*\/>/, '&lt;w:keepLines/>')
+    }
+    if (pPr) {
+        return p.replace(/^(&lt;w:p\b[^>]*>\s*&lt;w:pPr>(?:&lt;w:pStyle\b[^>]*\/>)?(?:&lt;w:keepNext\b[^>]*\/>)?)/, '$1&lt;w:keepLines/>')
+    }
+    return p.replace(/^(&lt;w:p\b[^>]*>)/, '$1&lt;w:pPr>&lt;w:keepLines/>&lt;/w:pPr>')
+}
+
+
+/**
+ * 段落設為與下段同頁(w:keepNext)
+ *
+ * 已有者原樣回傳；新增時依pPr子元素順序置於pStyle之後。
+ *
+ * @param {String} p 輸入段落XML字串
+ * @returns {String} 回傳段落XML字串
+ */
+function addKeepNext(p) {
+    let pPr = pPrOf(p)
+    if (/&lt;w:keepNext\/>|&lt;w:keepNext w:val="(?:1|true|on)"\/>/.test(pPr)) {
+        return p
+    }
+    if (/&lt;w:keepNext\b/.test(pPr)) {
+        return p.replace(/&lt;w:keepNext\b[^>]*\/>/, '&lt;w:keepNext/>')
+    }
+    if (pPr) {
+        return p.replace(/^(&lt;w:p\b[^>]*>\s*&lt;w:pPr>(?:&lt;w:pStyle\b[^>]*\/>)?)/, '$1&lt;w:keepNext/>')
+    }
+    return p.replace(/^(&lt;w:p\b[^>]*>)/, '$1&lt;w:pPr>&lt;w:keepNext/>&lt;/w:pPr>')
+}
+
+
+/**
+ * 找出須設與下段同頁之段落，使圖名、表名與其圖、表同頁
+ *
+ * 圖名表名之下段為表格或圖片段落時，圖名表名設與下段同頁；否則上段為圖片段落時，該圖片段落設與下段同頁。上下段須相鄰：兩者之間只有空白或書籤，並可越過空段落(見isBlank)，越過之空段落一併設與下段同頁。表格內之段落不作圖片段落；表名在表格下方者不處理。
+ *
+ * @param {String} doc 輸入document.xml字串
+ * @param {Array} paras 輸入scanParas之結果
+ * @param {Array} caps 輸入findCaptions之caps
+ * @param {Function} [isSkip] 輸入不參與判斷之段落之判斷函數(如文字方塊內或含文字方塊之段落)，遇之即視為不相鄰，預設皆參與
+ * @returns {Array} 回傳須設與下段同頁之段落陣列(可能重複)
+ */
+function planKeepNext(doc, paras, caps, isSkip = () => false) {
+    let between = (a, b) => doc.slice(a, b).replace(/&lt;w:bookmark(?:Start|End)\b[^>]*\/>/g, '').trim()
+    let tblAt = (pos) => /^&lt;w:tbl\b/.test(doc.slice(pos).replace(/^(?:\s|&lt;w:bookmark(?:Start|End)\b[^>]*\/>)+/, ''))
+    let iOf = new Map(paras.map((p, i) => [p.start, i]))
+    let out = []
+    for (let c of caps) {
+        let i = iOf.get(c.start)
+
+        //下段: 越過空段落後為表格或圖片段落
+        let blanks = []
+        let cur = c
+        let found = false
+        for (let j = i + 1; j &lt;= paras.length; j++) {
+            if (tblAt(cur.end)) {
+                found = true
+                break
+            }
+            let nx = paras[j]
+            if (!nx || nx.inTbl || isSkip(nx) || between(cur.end, nx.start) !== '') {
+                break
+            }
+            if (hasObj(nx)) {
+                found = true
+                break
+            }
+            if (!isBlank(nx)) {
+                break
+            }
+            blanks.push(nx)
+            cur = nx
+        }
+        if (found) {
+            out.push(c, ...blanks)
+            continue
+        }
+
+        //上段: 越過空段落後為圖片段落
+        blanks = []
+        cur = c
+        for (let j = i - 1; j >= 0; j--) {
+            let pv = paras[j]
+            if (pv.inTbl || isSkip(pv) || between(pv.end, cur.start) !== '') {
+                break
+            }
+            if (hasObj(pv)) {
+                out.push(pv, ...blanks)
+                break
+            }
+            if (!isBlank(pv)) {
+                break
+            }
+            blanks.push(pv)
+            cur = pv
+        }
+
+    }
+    return out
+}
+
+
+/**
+ * 準備圖名、表名與其圖、表同頁之docx內容(純結構處理, 不需Word)
+ *
+ * 圖名表名設段落內不分頁(keepLines)，並依planKeepNext設與下段同頁(keepNext)，不依附目錄：編號不連續、分節不只1個、無標題、已有目錄欄位皆照常處理。文字方塊內之段落為巢狀段落，正則切段會截斷含文字方塊之段落，故文字方塊內與含文字方塊之段落不作圖名表名亦不作圖片段落，並列入warns。已有之設定不重複添加；無需改動時回傳原內容。
+ *
+ * @param {Uint8Array} u8 輸入docx檔之內容
+ * @param {Object|Boolean} [opt={}] 輸入設定物件，true或非物件時皆用預設，預設{}
+ * @param {Object} [opt.labels={fig:'圖',tab:'表'}] 輸入圖名、表名之標籤，見normLabels
+ * @returns {Object} 回傳{u8,info}，info為{figs,tabs,keepNext,keepLines,changed,warns}：figs、tabs為圖名與表名數，keepNext、keepLines為新增該設定之段落數，changed為內容是否改動(false時u8為原內容)
+ */
+function prepDocxKeep(u8, opt = {}) {
+    if (!isobj(opt)) {
+        opt = {}
+    }
+    let labels = normLabels(get(opt, 'labels', {}))
+    let z = unzipSync(u8)
+    if (!z['word/document.xml']) {
+        throw new Error('the docx lacks word/document.xml')
+    }
+    let doc = strFromU8(z['word/document.xml'])
+    let warns = []
+
+    //文字方塊: 框內為巢狀段落, 正則切段會截斷含框之段落, 故框內與含框之段落皆不參與判斷
+    let rangesTxbx = [...doc.matchAll(/&lt;w:txbxContent\b[^>]*>[\s\S]*?&lt;\/w:txbxContent>/g)].map((m) => [m.index, m.index + m[0].length])
+    let isSkip = (p) => /&lt;w:txbxContent\b/.test(p.xml) || rangesTxbx.some(([a, b]) => p.start >= a &amp;&amp; p.start &lt; b)
+    if (rangesTxbx.length > 0) {
+        warns.push('the document has text boxes, the paragraphs in or holding text boxes are not treated as captions or figures')
+    }
+
+    //圖名與表名
+    let paras = scanParas(doc)
+    let tops = paras.filter((p) => !p.inTbl &amp;&amp; !isSkip(p))
+    let { caps, capsLike } = findCaptions(tops, labels)
+    if (capsLike.length > 0) {
+        warns.push(warnCapsLike(capsLike))
+    }
+
+    //改寫, 並計數實際新增設定之段落(已有者不計)
+    let nLines = 0
+    let nNext = 0
+    let fnLines = (x) => {
+        let y = addKeepLines(x)
+        if (y !== x) {
+            nLines++
+        }
+        return y
+    }
+    let fnNext = (x) => {
+        let y = addKeepNext(x)
+        if (y !== x) {
+            nNext++
+        }
+        return y
+    }
+    let ed = createEdits()
+    for (let c of caps) {
+        ed.addEdit(c, fnLines)
+    }
+    for (let p of planKeepNext(doc, paras, caps, isSkip)) {
+        ed.addEdit(p, fnNext)
+    }
+    let docNew = ed.apply(doc)
+
+    let info = {
+        figs: caps.filter((c) => c.kind === 'fig').length,
+        tabs: caps.filter((c) => c.kind === 'tab').length,
+        keepNext: nNext,
+        keepLines: nLines,
+        changed: docNew !== doc,
+        warns,
+    }
+    if (!info.changed) {
+        return { u8, info }
+    }
+    return { u8: writeDocx(z, { 'word/document.xml': docNew }), info }
+}
+
+
+export { labelsDef, normLabels, hasObj, isBlank, findCaptions, warnCapsLike, addKeepLines, addKeepNext, planKeepNext, prepDocxKeep }
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+    
+    
+</div>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Sat Oct 10 2026 16:55:09 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+</footer>
+
+<script>prettyPrint();</script>
+<script src="scripts/polyfill.js"></script>
+<script src="scripts/linenumber.js"></script>
+
+
+
+</body>
+</html>
