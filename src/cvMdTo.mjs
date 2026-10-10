@@ -26,7 +26,7 @@ import { mimeHtml, mimeDocx, toErrText, retryBusy, toSafeName, writeAssets, tran
  * @param {String} [opt.dirWork=''] 輸入工作資料夾根位置字串，未給則用系統暫存夾下之w-md2docx，預設''
  * @param {String} [opt.fpInTemp=''] 輸入Docx模板檔位置字串，未給則由w-html2docx使用其內建模板，預設''
  * @param {Object} [opt.optMd2html={}] 輸入傳予w-md2html之設定物件，預設{}
- * @param {Object} [opt.optHtml2docx={}] 輸入傳予w-html2docx之設定物件，預設{}
+ * @param {Object} [opt.optHtml2docx={}] 輸入傳予w-html2docx之設定物件，其imgHeightReserveLines未給時由cvMdToDocx預設4(行格線模板之圖片下方預留格數，給null停用)，預設{}
  * @param {Boolean} [opt.keepWork=false] 輸入是否保留工作資料夾供除錯布林值，預設false
  * @param {Boolean|Object} [opt.keepCaption=false] 輸入是否使圖名、表名與其圖、表同頁(true或{labels})，傳予cvMdToDocx，僅於產出docx時有效，預設false
  * @param {Boolean|Object} [opt.toc=false] 輸入是否添加章節目錄、圖目錄、表目錄並重編頁碼(true或addDocxToc之設定物件)，傳予cvMdToDocx，僅於產出docx時有效，預設false

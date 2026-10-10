@@ -47,15 +47,54 @@ function hasObj(p) {
 
 
 /**
+ * 判斷段落之前是否分頁
+ *
+ * 設段落前分頁(未設為關閉)或含分頁、分欄符號者為是。
+ *
+ * @param {Object} p 輸入段落(scanParas之元素)
+ * @returns {Boolean} 回傳段落之前是否分頁
+ */
+function isBrkBefore(p) {
+    return /<w:br\b[^>]*w:type="(?:page|column)"|<w:pageBreakBefore\b(?![^>]*w:val="(?:0|false|off)")/.test(p.xml)
+}
+
+
+/**
+ * 判斷段落之後是否分頁或分節
+ *
+ * 含分節設定或分頁、分欄符號者為是。
+ *
+ * @param {Object} p 輸入段落(scanParas之元素)
+ * @returns {Boolean} 回傳段落之後是否分頁或分節
+ */
+function isBrkAfter(p) {
+    return /<w:br\b[^>]*w:type="(?:page|column)"|<w:sectPr\b/.test(p.xml)
+}
+
+
+/**
  * 判斷段落是否為可越過之空段落
  *
- * 不在表格內、無文字、無圖片與物件、不含分頁或分欄符號與分節設定、不設段落前分頁者為空段落(如w-md2html之換行標記轉檔後之段落)，判斷圖名表名與其圖表是否相鄰時可越過。
+ * 不在表格內、無文字、無圖片與物件、其前其後皆不分頁或分節者為空段落(如w-md2html之換行標記轉檔後之段落)，判斷圖名表名與其圖表是否相鄰時可越過。
  *
  * @param {Object} p 輸入段落(scanParas之元素)
  * @returns {Boolean} 回傳是否為可越過之空段落
  */
 function isBlank(p) {
-    return !p.inTbl && textOf(p.xml).trim() === '' && !hasObj(p) && !/<w:br\b[^>]*w:type="(?:page|column)"|<w:sectPr\b|<w:pageBreakBefore\b/.test(p.xml)
+    return !p.inTbl && textOf(p.xml).trim() === '' && !hasObj(p) && !isBrkBefore(p) && !isBrkAfter(p)
+}
+
+
+/**
+ * 判斷段落是否為圖片段落
+ *
+ * 含圖片或內嵌物件而無文字者為圖片段落；水平線(如md之---經Word匯入之VML橫線，帶o:hr)不算。
+ *
+ * @param {Object} p 輸入段落(scanParas之元素)
+ * @returns {Boolean} 回傳是否為圖片段落
+ */
+function isPicPara(p) {
+    return hasObj(p) && textOf(p.xml).trim() === '' && !/\bo:hr="t"/.test(p.xml)
 }
 
 
@@ -149,7 +188,9 @@ function addKeepNext(p) {
 /**
  * 找出須設與下段同頁之段落，使圖名、表名與其圖、表同頁
  *
- * 圖名表名之下段為表格或圖片段落時，圖名表名設與下段同頁；否則上段為圖片段落時，該圖片段落設與下段同頁。上下段須相鄰：兩者之間只有空白或書籤，並可越過空段落(見isBlank)，越過之空段落一併設與下段同頁。表格內之段落不作圖片段落；表名在表格下方者不處理。
+ * 圖名表名之候選：下段為表格或圖片段落(見isPicPara)者，圖名表名在上，設圖名表名與下段同頁；上段為圖片段落者，圖名表名在下，設該圖片段落與下段同頁；上段為表格者，圖名表名在表格下方，不設(表格整體同頁須設其每一列，不處理)，僅供判斷歧義與歸屬。上下段須相鄰：兩者之間只有空白或書籤，並可越過空段落(見isBlank)，越過之空段落一併設與下段同頁；兩者之間分頁或分節(圖名表名或其圖表段落之前或之後，見isBrkBefore、isBrkAfter)即不相鄰。表格內之段落不作圖片段落。
+ *
+ * 只有一方有候選者與該方同頁。上下皆有候選者(如連續之圖：圖、圖名、圖、圖名)，依同類(圖名或表名)只有一方有候選者之多數位置取向：在上者多取下段，在下者多取上段，平手時圖名取上段、表名取下段(圖名在圖下方、表名在表上方之慣例)。一張圖表只歸屬一方：取向之一方已歸屬其他圖名表名而另一方未歸屬時改取另一方，兩方皆已歸屬時不設；取下段者自文件末往前、取上段者自文件首往後依序歸屬，使歸屬自與取向相反之圖名表名處延續。兩個只有一方有候選之圖名表名夾同一張圖時兩者皆設(無從判斷屬誰)。
  *
  * @param {String} doc 輸入document.xml字串
  * @param {Array} paras 輸入scanParas之結果
@@ -158,60 +199,140 @@ function addKeepNext(p) {
  * @returns {Array} 回傳須設與下段同頁之段落陣列(可能重複)
  */
 function planKeepNext(doc, paras, caps, isSkip = () => false) {
+    let reMarkLead = /^(?:\s|<w:bookmark(?:Start|End)\b[^>]*\/>)+/
+    let reMarkTail = /(?:\s|<w:bookmark(?:Start|End)\b[^>]*\/>)+$/
     let between = (a, b) => doc.slice(a, b).replace(/<w:bookmark(?:Start|End)\b[^>]*\/>/g, '').trim()
-    let tblAt = (pos) => /^<w:tbl\b/.test(doc.slice(pos).replace(/^(?:\s|<w:bookmark(?:Start|End)\b[^>]*\/>)+/, ''))
     let iOf = new Map(paras.map((p, i) => [p.start, i]))
-    let out = []
-    for (let c of caps) {
-        let i = iOf.get(c.start)
 
-        //下段: 越過空段落後為表格或圖片段落
+    //tblOfEnd: 頂層表格之結尾位置對應其起點, 表格以起點識別(上下兩方向取得之同一表格須為同一識別)
+    let tblOfEnd = new Map()
+    let depth = 0
+    let s0 = 0
+    for (let m of doc.matchAll(/<w:tbl\b[^>]*>|<\/w:tbl>/g)) {
+        if (m[0] === '</w:tbl>') {
+            depth--
+            if (depth === 0) {
+                tblOfEnd.set(m.index + m[0].length, s0)
+            }
+        }
+        else {
+            if (depth === 0) {
+                s0 = m.index
+            }
+            depth++
+        }
+    }
+
+    //tblAfter, tblBefore: 位置之後、之前越過空白與書籤為表格時回傳該表格之起點, 否則回傳-1
+    let tblAfter = (pos) => {
+        let rest = doc.slice(pos)
+        let n = (rest.match(reMarkLead) || [''])[0].length
+        return /^<w:tbl\b/.test(rest.slice(n)) ? pos + n : -1
+    }
+    let tblBefore = (pos) => {
+        let a = Math.max(0, pos - 4096)
+        let head = doc.slice(a, pos).replace(reMarkTail, '')
+        let e = a + head.length
+        return head.endsWith('</w:tbl>') && tblOfEnd.has(e) ? tblOfEnd.get(e) : -1
+    }
+
+    //below: 下段越過空段落後為表格或圖片段落時, 回傳{obj,keeps}(obj為該表格或圖片段落之識別, keeps為須設與下段同頁之圖名表名與所越過之空段落), 否則回傳null
+    let below = (c) => {
+        if (isBrkAfter(c)) {
+            return null
+        }
         let blanks = []
         let cur = c
-        let found = false
-        for (let j = i + 1; j <= paras.length; j++) {
-            if (tblAt(cur.end)) {
-                found = true
-                break
+        for (let j = iOf.get(c.start) + 1; j <= paras.length; j++) {
+            let t = tblAfter(cur.end)
+            if (t >= 0) {
+                return { obj: `t${t}`, keeps: [c, ...blanks] }
             }
             let nx = paras[j]
-            if (!nx || nx.inTbl || isSkip(nx) || between(cur.end, nx.start) !== '') {
-                break
+            if (!nx || nx.inTbl || isSkip(nx) || between(cur.end, nx.start) !== '' || isBrkBefore(nx)) {
+                return null
             }
-            if (hasObj(nx)) {
-                found = true
-                break
+            if (isPicPara(nx)) {
+                return { obj: `p${nx.start}`, keeps: [c, ...blanks] }
             }
             if (!isBlank(nx)) {
-                break
+                return null
             }
             blanks.push(nx)
             cur = nx
         }
-        if (found) {
-            out.push(c, ...blanks)
-            continue
-        }
+        return null
+    }
 
-        //上段: 越過空段落後為圖片段落
-        blanks = []
-        cur = c
-        for (let j = i - 1; j >= 0; j--) {
-            let pv = paras[j]
-            if (pv.inTbl || isSkip(pv) || between(pv.end, cur.start) !== '') {
-                break
+    //above: 上段越過空段落後為圖片段落或表格時, 回傳{obj,keeps}(圖片段落之keeps為須設與下段同頁之圖片段落與所越過之空段落, 表格之keeps為null即不設), 否則回傳null
+    let above = (c) => {
+        if (isBrkBefore(c)) {
+            return null
+        }
+        let blanks = []
+        let cur = c
+        for (let j = iOf.get(c.start) - 1; j >= -1; j--) {
+            let t = tblBefore(cur.start)
+            if (t >= 0) {
+                return { obj: `t${t}`, keeps: null }
             }
-            if (hasObj(pv)) {
-                out.push(pv, ...blanks)
-                break
+            let pv = paras[j]
+            if (!pv || pv.inTbl || isSkip(pv) || between(pv.end, cur.start) !== '' || isBrkAfter(pv)) {
+                return null
+            }
+            if (isPicPara(pv)) {
+                return { obj: `p${pv.start}`, keeps: [pv, ...blanks] }
             }
             if (!isBlank(pv)) {
-                break
+                return null
             }
             blanks.push(pv)
             cur = pv
         }
+        return null
+    }
 
+    let cands = caps.map((c) => ({ c, dn: below(c), up: above(c) }))
+
+    //各類之取向: 依同類只有一方有候選者之多數位置, 平手時圖名取上段、表名取下段
+    //why: 一律先取下段會使連續之圖之圖名皆與下一張圖同頁, 圖放不下時圖名隨下一張圖移至次頁(2026-10-10 Word 16 實測整頁高長圖 4 張皆分離)
+    let prefer = {}
+    for (let kind of ['fig', 'tab']) {
+        let vs = cands.filter((v) => v.c.kind === kind)
+        let nAbove = vs.filter((v) => v.dn !== null && v.up === null).length
+        let nBelow = vs.filter((v) => v.dn === null && v.up !== null).length
+        prefer[kind] = nAbove > nBelow ? 'dn' : (nAbove < nBelow ? 'up' : (kind === 'fig' ? 'up' : 'dn'))
+    }
+
+    //先歸屬只有一方有候選者, 再歸屬上下皆有候選者(取上段者依文件順序, 取下段者依文件逆序)
+    let out = []
+    let claimed = new Set()
+    let bind = (x) => {
+        if (x.keeps !== null) {
+            out.push(...x.keeps)
+        }
+        claimed.add(x.obj)
+    }
+    let boths = []
+    for (let v of cands) {
+        if (v.dn !== null && v.up !== null) {
+            boths.push(v)
+        }
+        else if (v.dn !== null || v.up !== null) {
+            bind(v.dn !== null ? v.dn : v.up)
+        }
+    }
+    let byUp = boths.filter((v) => prefer[v.c.kind] === 'up')
+    let byDn = boths.filter((v) => prefer[v.c.kind] === 'dn').reverse()
+    for (let v of [...byUp, ...byDn]) {
+        let a = prefer[v.c.kind]
+        let b = a === 'up' ? 'dn' : 'up'
+        if (!claimed.has(v[a].obj)) {
+            bind(v[a])
+        }
+        else if (!claimed.has(v[b].obj)) {
+            bind(v[b])
+        }
     }
     return out
 }
@@ -295,4 +416,4 @@ function prepDocxKeep(u8, opt = {}) {
 }
 
 
-export { labelsDef, normLabels, hasObj, isBlank, findCaptions, warnCapsLike, addKeepLines, addKeepNext, planKeepNext, prepDocxKeep }
+export { labelsDef, normLabels, hasObj, isBrkBefore, isBrkAfter, isBlank, isPicPara, findCaptions, warnCapsLike, addKeepLines, addKeepNext, planKeepNext, prepDocxKeep }

@@ -96,7 +96,7 @@ async function runWord(fpVbs, fpIn, fpOut, timeout) {
  * @param {Array} [opt.headStyles=['章標題','節標題','小節標題']] 輸入承接標題粗體之段落樣式名稱(依層)，模板已有同名樣式時須為粗體
  * @param {Boolean} [opt.pageNumbers=true] 輸入是否分節重編頁碼，false時只插入三目錄(各自起新頁)，不動分節與頁碼
  * @param {Boolean} [opt.keepLines=true] 輸入是否將目錄來源段落(列入目錄之標題、圖名、表名)設為段落內不分頁，使目錄之頁碼即該段落所在之頁(多行之表名跨頁時，首行留在前頁而表格在次頁，表目錄之頁碼會指向前頁)
- * @param {Boolean} [opt.keepWithObject=true] 輸入是否使圖名、表名與其圖、表同頁：下段為表格或圖片時圖名表名設與下段同頁，上段為圖片時該段設與下段同頁(圖在頁底而圖名被擠到次頁時，圖目錄之頁碼會指向次頁)
+ * @param {Boolean} [opt.keepWithObject=true] 輸入是否使圖名、表名與其圖、表同頁(與keepCaption同一規則，見docxKeep.mjs之planKeepNext)：與下段之表格或圖片、或上段之圖片同頁，上下皆有圖表時依同類圖名表名之多數位置，平手時圖名取上段、表名取下段(圖在頁底而圖名被擠到次頁時，圖目錄之頁碼會指向次頁)
  * @param {Boolean} [opt.replaceTocStyles=true] 輸入是否以本套件之目錄項目樣式(第1層粗體、下層縮排並懸掛縮排、點線引導頁碼，字型沿用正文第1個標題)取代模板既有之toc N與table of figures樣式，false時沿用模板既有者、僅補建缺少者
  * @param {Integer} [opt.timeoutMs=1800000] 輸入Word更新之逾時毫秒數，預設1800000(30分鐘)
  * @returns {Promise} 回傳Promise，resolve回傳{skip,cover,levels,front,lists,toc,fig,tab,pagesFirst,pages,warns,ms}(toc、fig、tab為各目錄之項目數，lists為實際插入之目錄，pagesFirst為目錄第1項之頁碼)，無標題時僅回傳{skip,ms}；reject回傳錯誤訊息字串

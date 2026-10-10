@@ -194,7 +194,7 @@ function readAssets(md, dirMd) {
  * @param {String} [opt.name=''] 輸入輸出檔名主體字串，未給則取md檔名，預設''
  * @param {String} [opt.token=''] 輸入x-api-token字串，未給則取環境變數WMD2DOCX_TOKEN，預設''
  * @param {Object} [opt.optMd2html] 輸入傳予w-md2html之設定物件
- * @param {Object} [opt.optHtml2docx] 輸入傳予w-html2docx之設定物件
+ * @param {Object} [opt.optHtml2docx] 輸入傳予w-html2docx之設定物件，其imgHeightReserveLines未給時由服務端預設4(行格線模板之圖片下方預留格數，給null停用，見cvMdToDocx)
  * @param {Boolean} [opt.allowMissingAssets=false] 輸入是否容許md引用之資產檔不存在布林值，預設false
  * @param {Boolean|Object} [opt.keepCaption=false] 輸入是否於服務端使圖名、表名與其圖、表同頁(true或{labels})；有產出docx而服務端回應未帶其結果時(服務端版本不支援)reject且不寫檔，預設false
  * @param {Boolean|Object} [opt.toc=false] 輸入是否於服務端添加章節目錄、圖目錄、表目錄並重編頁碼(true或addDocxToc之設定物件，其timeoutMs由服務端決定而不採用)；有產出docx而服務端回應未帶目錄結果時(服務端版本不支援)reject且不寫檔，預設false

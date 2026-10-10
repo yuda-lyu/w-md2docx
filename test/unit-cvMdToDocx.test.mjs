@@ -9,6 +9,7 @@ import cvMdTo from '../src/cvMdTo.mjs'
 import hasWord from './tools/hasWord.mjs'
 import runWithFakeHtml2docx from './tools/fakeHtml2docx.mjs'
 import { parts, buildDocx, readPart, listParas } from './tools/docxFixture.mjs'
+import { genTallPng, getImgHeights, getFigurePages } from './tools/imgFixture.mjs'
 
 
 //fdTmpRoot: 本測試檔專用暫存夾, 各describe於其下自建子夾並於after刪除
@@ -193,7 +194,12 @@ describe('cvMdToDocx 實轉(需Windows+Microsoft Word)', function() {
         assert.strict.equal(r.sizeDocx, fs.statSync(fpOutToc).size)
         let x = readZipEntries(fs.readFileSync(fpOutToc))['word/document.xml'].toString('utf8')
         assert.strict.equal((x.match(/<w:sectPr\b/g) || []).length, 3)
-        assert.strict.equal(/<w:instrText[^>]*> TOC \\o "1-2" \\h \\z \\u <\/w:instrText>/.test(x), true)
+        //目錄欄位之\o自正文最高之標題階層起, 涵蓋md之兩層標題(#、##)
+        //note: 階層以docx實際之大綱階層為準, Word匯入html時h1、h2為段落直設之大綱階層(Word 16實測為2、3, 非1、2), 故不寫死
+        let pH1 = listParas(x).find((p) => p.text === '第一章 緒論')
+        let l0 = Number(pH1.xml.match(/<w:outlineLvl w:val="(\d)"\/>/)[1]) + 1
+        assert.strict.deepEqual(r.toc.levels, [l0, l0 + 1])
+        assert.strict.equal(x.includes(`> TOC \\o "${l0}-${l0 + 1}" \\h \\z \\u </w:instrText>`), true)
     })
 
     it('keepCaption:true: 圖片段與表名設與下段同頁, 交付之docx(由fflate寫出)可由Word開啟另存', async function() {
@@ -225,6 +231,38 @@ describe('cvMdToDocx 實轉(需Windows+Microsoft Word)', function() {
         //Word 開啟另存: 開檔失敗(檔案損毀)時 updateDocxToc.vbs 以離開碼 1 結束, execFileSync 拋錯
         let out = execFileSync('cscript', ['//nologo', path.resolve('./src/updateDocxToc.vbs'), fpOutKeep, path.resolve(fdTmp, 'keep-resaved.docx')], { encoding: 'utf8', windowsHide: true })
         assert.strict.equal(/(^|\n)ok\s*$/.test(out.trim()), true, out)
+    })
+
+    it('整頁高之長圖: 預設預留4格使圖高為(38-4)×18-0.5點, 連續長圖各與其圖名同頁(未開同頁、keepCaption、toc皆然)', async function() {
+        this.timeout(600000)
+        let fd = path.resolve(fdTmp, 'tall')
+        fs.mkdirSync(fd, { recursive: true })
+        fs.writeFileSync(path.resolve(fd, 'tall.png'), genTallPng())
+        //md: 前言、4個圖區塊(長圖+2行之圖名), 圖區塊間由撰文者寫入w-md2html之換行標記(空段落)
+        let cap = (i) => `圖${i} 用過核子燃料最終處置資訊展示網站之首頁設計稿，含導覽列、主視覺、最新消息、計畫沿革、各階段成果展示與頁尾聯絡資訊之完整版面配置示意`
+        let lines = ['前言段落。', '']
+        for (let i = 1; i <= 4; i++) {
+            lines.push('![](tall.png)', '', cap(i), '')
+            if (i < 4) {
+                lines.push('<div data-for="br"></div>', '')
+            }
+        }
+        lines.push('結尾段落。', '')
+        let fpMd = path.resolve(fd, 'tall.md')
+        let fpMdToc = path.resolve(fd, 'tallToc.md')
+        fs.writeFileSync(fpMd, lines.join('\n'), 'utf8')
+        fs.writeFileSync(fpMdToc, ['封面。', '', '# 第一章 長圖', '', ...lines].join('\n'), 'utf8')
+        for (let [name, fp, opt] of [['plain', fpMd, {}], ['keep', fpMd, { keepCaption: true }], ['toc', fpMdToc, { toc: true }]]) {
+            let fpOut = path.resolve(fd, `${name}.docx`)
+            await cvMdToDocx(fp, fpOut, { fpInTemp, ...opt })
+            //temp_tpc.docx: A4、上下邊界72點、行距18點之行格線, 版心高697.9點即每頁38格, 預留4格之圖高上限為(38-4)×18-0.5=611.5點
+            let hs = getImgHeights(fpOut)
+            assert.strict.equal(hs.length, 4, name)
+            assert.strict.equal(hs.every((h) => Math.abs(h - 611.5) < 0.05), true, `${name}: ${hs}`)
+            //Word排版後各圖片段與其後之圖名(首行、末行)同頁
+            let pgs = getFigurePages(fpOut)
+            assert.strict.deepEqual(pgs.map((v) => v.img === v.capStart && v.img === v.capEnd), [true, true, true, true], `${name}: ${JSON.stringify(pgs)}`)
+        }
     })
 
     it('cvMdTo out=both: html與docx內容皆回傳且msDocx存在', async function() {
@@ -540,6 +578,30 @@ describe('cvMdToDocx 轉檔後處理(假轉檔器, 不需Word)', function() {
         assert.strict.equal(res.r, null)
         assert.strict.equal(/^Failed to keep the captions with their figures and tables: /.test(String(res.err)), true, String(res.err))
         assert.strict.equal(res.exists, false)
+    })
+
+    it('imgHeightReserveLines: 未給時以4傳予w-html2docx, 給數字、null或其他值原樣傳下(由w-html2docx判斷), 呼叫端之optHtml2docx不被改動', function() {
+        this.timeout(180000)
+        //cases: 依序為 opt 未給 optHtml2docx、空物件、僅含他鍵、6、0、null、-1、'x'、optHtml2docx 非物件
+        let scriptOpt = [
+            `let m = await import(process.env.T_MOD)`,
+            `let cases = [undefined, {}, { imgRatioWidthMax: 0.5 }, { imgHeightReserveLines: 6 }, { imgHeightReserveLines: 0 }, { imgHeightReserveLines: null }, { imgHeightReserveLines: -1 }, { imgHeightReserveLines: 'x' }, 'str']`,
+            `let snap = JSON.stringify(cases)`,
+            `for (let o of cases) { await m.default(process.env.T_MD, process.env.T_DOCX, o === undefined ? {} : { optHtml2docx: o }) }`,
+            `let opts = globalThis.fakeHtml2docxOpts`,
+            `process.stdout.write('@@RESULT@@' + JSON.stringify({ got: opts.map((v) => v.imgHeightReserveLines), other: opts[2].imgRatioWidthMax, unchanged: JSON.stringify(cases) === snap }))`,
+        ].join('\n')
+        let res = runWithFakeHtml2docx(scriptOpt, {
+            fpDocx: fpNoHead,
+            env: {
+                T_MOD: pathToFileURL(path.resolve('./src/cvMdToDocx.mjs')).href,
+                T_MD: fpMd,
+                T_DOCX: path.resolve(fdTmp, 'reserve.docx'),
+            },
+        })
+        assert.strict.deepEqual(res.got, [4, 4, 4, 6, 0, null, -1, 'x', 4])
+        assert.strict.equal(res.other, 0.5) //其餘設定照傳
+        assert.strict.equal(res.unchanged, true)
     })
 
 })

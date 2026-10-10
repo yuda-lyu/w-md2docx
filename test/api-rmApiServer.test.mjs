@@ -194,6 +194,35 @@ describe('rmApiServer', function() {
         await assert.rejects(fetch(`${u3}/api/health`, { signal: AbortSignal.timeout(3000) }))
     })
 
+    it('模板夾之Word擁有者檔(~$開頭)與非docx檔不列為可用模板, 亦不可以templateName指定', async function() {
+        //可用模板之列出(health之templates、錯誤訊息)與指定(templateName)為同一集合
+        //why: Word開啟模板轉檔期間於同資料夾建~$開頭之擁有者檔(如temp_tpc.docx之~$mp_tpc.docx, 2026-10-10實測), 不得被列出或取用
+        let portTpl = 8204 //固定埠, 與本檔 8201、8202、8203 錯開
+        let dirTpl = path.resolve(fdTmp, 'templates')
+        fs.mkdirSync(dirTpl, { recursive: true })
+        fs.copyFileSync('./src/templates/temp_tpc.docx', path.resolve(dirTpl, 'a.docx'))
+        fs.writeFileSync(path.resolve(dirTpl, '~$a.docx'), 'owner')
+        fs.writeFileSync(path.resolve(dirTpl, 'b.txt'), 'b')
+        let s4 = await rmApiServer({ port: portTpl, host: '127.0.0.1', dirTemplates: dirTpl, templateDef: 'a.docx', dirWork: path.resolve(fdTmp, 'work4') })
+        try {
+            let u4 = `http://127.0.0.1:${portTpl}`
+            let convert = (templateName) => fetch(`${u4}/api/convert`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ md: '# t', out: 'html', templateName }) })
+            let r = await (await fetch(`${u4}/api/health`)).json()
+            assert.strict.deepEqual(r.templates, ['a.docx'])
+            for (let fn of ['~$a.docx', 'b.txt']) {
+                let res = await convert(fn)
+                assert.strict.equal(res.status, 400)
+                assert.strict.deepEqual(await res.json(), { success: false, error: `templateName[${fn}] does not exist (available templates: a.docx)` })
+            }
+            let res2 = await convert('a.docx')
+            assert.strict.equal(res2.status, 200)
+            assert.strict.equal((await res2.json()).template, 'server')
+        }
+        finally {
+            await s4.stop()
+        }
+    })
+
     it('POST /api/convert keepCaption與toc: 轉傳至轉檔且回應帶兩者之結果(子程序以假轉檔器取代w-html2docx, 文件無標題時目錄為skip)', function() {
         this.timeout(180000)
         if (process.platform !== 'win32') {
@@ -222,6 +251,37 @@ describe('rmApiServer', function() {
         assert.strict.equal(res.hasDocx, true)
         assert.strict.equal(res.toc.skip, 'no heading (paragraph with an outline level) is found, the TOC is not added')
         assert.strict.deepEqual([res.keepCaption.figs, res.keepCaption.keepNext, res.keepCaption.changed], [1, 1, true]) //字串'true'視同true
+    })
+
+    it('POST /api/convert optHtml2docx: 未給imgHeightReserveLines時以4傳予w-html2docx, 給null(停用)或數字原樣傳下(子程序以假轉檔器記錄所收設定)', function() {
+        this.timeout(180000)
+        if (process.platform !== 'win32') {
+            this.skip()
+        }
+        let fpFixture = path.resolve(fdTmp, 'fixture-plain.docx')
+        fs.writeFileSync(fpFixture, buildDocx(parts.cover() + parts.body('內容。')))
+        let portOpt = 8205 //固定埠, 與本檔 8201～8204 錯開
+        let script = [
+            `let m = await import(process.env.T_MOD)`,
+            `let s = await m.default({ port: ${portOpt}, host: '127.0.0.1', dirWork: process.env.T_WORK })`,
+            `let status = []`,
+            `for (let optHtml2docx of [undefined, { imgHeightReserveLines: null }, { imgHeightReserveLines: 6 }]) {`,
+            `    let res = await fetch('http://127.0.0.1:${portOpt}/api/convert', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ md: '# t', out: 'docx', optHtml2docx }) })`,
+            `    await res.json()`,
+            `    status.push(res.status)`,
+            `}`,
+            `await s.stop()`,
+            `process.stdout.write('@@RESULT@@' + JSON.stringify({ status, got: globalThis.fakeHtml2docxOpts.map((v) => v.imgHeightReserveLines) }))`,
+        ].join('\n')
+        let res = runWithFakeHtml2docx(script, {
+            fpDocx: fpFixture,
+            env: {
+                T_MOD: pathToFileURL(path.resolve('./src/rmApiServer.mjs')).href,
+                T_WORK: path.resolve(fdTmp, 'work-opt'),
+            },
+        })
+        assert.strict.deepEqual(res.status, [200, 200, 200])
+        assert.strict.deepEqual(res.got, [4, null, 6]) //經JSON傳遞: 未給即缺鍵而補4, null保留
     })
 
 })

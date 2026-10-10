@@ -95,7 +95,7 @@ let r = await WMd2docx.cvMdToDocx('./test/report.md', './test/report.docx', {
     toc: true, //or settings, e.g. { labels: { fig: 'Figure', tab: 'Table' }, titles: { toc: 'Contents', fig: 'List of Figures', tab: 'List of Tables' } }
 })
 console.log(r.toc)
-// => { skip: '', cover: true, levels: [1, 3], front: [], lists: ['toc', 'tab'], toc: 18, fig: 0, tab: 3, pagesFirst: '1', pages: 21, warns: [], ms: 3120 }
+// => { skip: '', cover: true, levels: [2, 4], front: [], lists: ['toc'], toc: 26, fig: 0, tab: 0, pagesFirst: '1', pages: 10, warns: [], ms: 2589 }
 ```
 
 - Headings are paragraphs with an outline level. The tables are inserted before the first heading of the body, and only the headings of the body are listed (`maxLevels`, default 3).
@@ -115,12 +115,30 @@ let r = await WMd2docx.cvMdToDocx('./test/report.md', './test/report.docx', {
     keepCaption: true, //or { labels: { fig: 'Figure', tab: 'Table' } }
 })
 console.log(r.keepCaption)
-// => { figs: 3, tabs: 2, keepNext: 5, keepLines: 5, changed: true, warns: [], ms: 210 }
+// => { figs: 0, tabs: 0, keepNext: 0, keepLines: 0, changed: false, warns: [], ms: 4 } (test/report.md has no captions, so the docx is not rewritten)
 ```
 
 - Captions are recognized as in the TOC, and each caption is kept from splitting across pages (`keepLines`).
-- A caption followed by a table or a figure is kept with it, otherwise a figure right before a caption is kept with the caption (`keepNext`). Empty paragraphs between them are crossed and kept too, but a page break, a section break or a page break before stops it. When figures follow each other directly (figure, caption, figure, caption), the first caption is kept with the next figure, so they are chained.
-- Table captions below their tables are not handled. The paragraphs in or holding text boxes are neither captions nor figures, which is reported in `warns`.
+- A caption is kept with the table or figure right after it, or with the figure right before it (`keepNext`). A figure is a paragraph holding a picture or an object without text, so a horizontal line (`---`) or text with an inline picture is not a figure. Empty paragraphs between them are crossed and kept too, but a page break or a section break between them (in an empty paragraph, or as a page break before the later one) stops it.
+- A caption with a figure or table on both sides (e.g. figures following each other: figure, caption, figure, caption) follows the captions of its kind that have one on one side only: it goes to the side most of them use, and on a tie to the figure before it for a figure caption and to the table or figure after it for a table caption, as figure captions are usually below their figures and table captions above their tables. A figure or table already taken by another caption is left to it, and a caption whose both sides are taken is not kept with either. Two captions with a figure between them and nothing on their other sides are both kept with it.
+- A table above a caption is not kept with it (that would take every row), so a caption below its table is only kept from splitting, and is not kept with a table after it either. The paragraphs in or holding text boxes are neither captions nor figures, which is reported in `warns`. A figure made of several paragraphs is kept only by the paragraph next to its caption.
 - The rules of the TOC do not apply: captions numbered out of order, several sections, no headings or an existing TOC are processed as usual. With `toc`, captions are kept even when the TOC is skipped or its `keepWithObject` is `false`.
 - `changed: false` means nothing was needed and the docx is not rewritten. Otherwise the docx is rewritten (not by Word) through a temporary file, and a failure deletes the docx just converted and rejects.
 - `labels` of `keepCaption` and of `toc` are independent. The service passes `keepCaption` on, and `rmApiClient.cvMdTo` rejects without writing the docx when the service does not report the result.
+
+#### Tall figures and captions:
+> With a template that has a line grid (Word: Layout > Page Setup > Document Grid > Specify line grid only, as `temp_tpc.docx`), Word rounds the height of each paragraph up to whole grid lines, so a figure as tall as the page pushes its caption to the next page. `cvMdToDocx` (and so `cvMdTo` and the service) therefore passes `imgHeightReserveLines: 4` to `w-html2docx` unless `optHtml2docx` gives it. The height of a figure is limited to leave 4 grid lines below it: an empty paragraph between figure blocks (such as `<div data-for="br"></div>` written in the Markdown), a caption of up to 2 lines of 12pt text and 1 line of margin.
+```alias
+let r = await WMd2docx.cvMdToDocx('./test/report.md', './test/report.docx', {
+    fpInTemp: './src/templates/temp_tpc.docx',
+    optHtml2docx: {
+        imgHeightReserveLines: 6, //default 4, null to disable
+    },
+    keepCaption: true,
+})
+```
+
+- The limit lets a figure and its caption fit in one page, and `keepCaption` (or `toc`) keeps them together. With `temp_tpc.docx` (38 grid lines of 18pt a page), the tallest figure becomes (38 - 4) × 18 - 0.5 = 611.5pt instead of about 654pt.
+- Give a larger number for larger or longer captions: a line of 14pt `標楷體` takes 2 grid lines. Paragraph spacing before or after, and a header or footer taller than the margin, take more room, hence the line of margin.
+- `imgRatioHeightMax` of `optHtml2docx` still applies on top of it (0.95 gives about 581pt), so drop it if it was set only to make room for captions.
+- Give `null` to keep the default maximum height of `w-html2docx` (0.937 of the content height). The setting has no effect with a template without a line grid, such as the built-in template of `w-html2docx`, see `imgHeightReserveLines` of `w-html2docx` for the exact conditions.

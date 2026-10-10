@@ -143,12 +143,16 @@ async function rmApiServer(opt = {}) {
         autoStart = true
     }
 
+    //isTemplateName: 是否為可用之 docx 模板檔名, 列出(listTemplates)與指定(templateName)共用此規則
+    //note: 排除 Word 開檔期間於同資料夾建立之擁有者檔(~$ 開頭), 如以 temp_tpc.docx 為模板轉檔時之 ~$mp_tpc.docx, 其非模板且轉檔結束即刪除
+    let isTemplateName = (fn) => /\.docx$/i.test(fn) && !fn.startsWith('~$')
+
     //listTemplates: 列出可用之 docx 模板檔名
     let listTemplates = () => {
         if (!fsIsFolder(dirTemplates)) {
             return []
         }
-        return fs.readdirSync(dirTemplates).filter((v) => /\.docx$/i.test(v))
+        return fs.readdirSync(dirTemplates).filter(isTemplateName)
     }
 
     //getFpTemplateDef: 取預設模板位置(不存在則回空字串)
@@ -185,7 +189,7 @@ async function rmApiServer(opt = {}) {
         }
         if (fn !== '') {
             let fp = path.resolve(dirTemplates, path.basename(fn)) //basename 化, 限定取用 templates 內之檔案
-            if (!fsIsFile(fp)) {
+            if (!isTemplateName(path.basename(fn)) || !fsIsFile(fp)) {
                 throw new Error(`templateName[${fn}] does not exist (available templates: ${listTemplates().join(', ') || 'none'})`)
             }
             return { fpInTemp: fp, from: 'server', fpTmpDel: '' }

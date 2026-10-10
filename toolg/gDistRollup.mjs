@@ -22,6 +22,7 @@ async function rp() {
             'child_process': 'child_process',
             'sharp': 'sharp', //w-image-proc
             'highlight.js': 'highlight.js', //w-md2html
+            'katex': 'katex', //w-md2html(1.1.5起直接引用katex取version)
             'marked': 'marked', //w-md2html
             'marked-katex-extension': 'marked-katex-extension', //w-md2html
             'marked-footnote': 'marked-footnote', //w-md2html
@@ -29,7 +30,7 @@ async function rp() {
             'dompurify': 'dompurify', //w-md2html
             'jsdom': 'jsdom', //w-md2html(動態載入)
             '@hapi/hapi': '@hapi/hapi', //rmApiServer
-            'fflate': 'fflate', //docxToc
+            'fflate': 'fflate', //docxXml, docxKeep, docxToc
         },
         external: [
             'path',
@@ -40,6 +41,7 @@ async function rp() {
             'child_process',
             'sharp', //w-image-proc
             'highlight.js', //w-md2html
+            'katex', //w-md2html(1.1.5起直接引用katex取version)
             'marked', //w-md2html
             'marked-katex-extension', //w-md2html
             'marked-footnote', //w-md2html
@@ -47,7 +49,7 @@ async function rp() {
             'dompurify', //w-md2html
             'jsdom', //w-md2html(動態載入)
             '@hapi/hapi', //rmApiServer
-            'fflate', //docxToc
+            'fflate', //docxXml, docxKeep, docxToc
         ],
     })
 
