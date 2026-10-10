@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    
+    <meta charset="utf-8">
+    <title>addDocxToc.mjs - Documentation</title>
+    
+    
+    <script src="scripts/prettify/prettify.js"></script>
+    <script src="scripts/prettify/lang-css.js"></script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc.css">
+    <script src="scripts/nav.js" defer></script>
+    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body>
+
+<input type="checkbox" id="nav-trigger" class="nav-trigger" />
+<label for="nav-trigger" class="navicon-button x">
+  <div class="navicon"></div>
+</label>
+
+<label for="nav-trigger" class="overlay"></label>
+
+<nav >
+    
+    
+    <h2><a href="index.html">Home</a></h2><h3>Global</h3><ul><li><a href="global.html#WMd2docx">WMd2docx</a></li><li><a href="global.html#addDocxToc">addDocxToc</a></li><li><a href="global.html#checkDocxReady">checkDocxReady</a></li><li><a href="global.html#checkDocxToc">checkDocxToc</a></li><li><a href="global.html#cleanWorkDir">cleanWorkDir</a></li><li><a href="global.html#cvMdTo">cvMdTo</a></li><li><a href="global.html#cvMdToDocx">cvMdToDocx</a></li><li><a href="global.html#getFpExe">getFpExe</a></li><li><a href="global.html#getFpVbs">getFpVbs</a></li><li><a href="global.html#getQueueSize">getQueueSize</a></li><li><a href="global.html#health">health</a></li><li><a href="global.html#normTocOpt">normTocOpt</a></li><li><a href="global.html#normTocReq">normTocReq</a></li><li><a href="global.html#prepDocxToc">prepDocxToc</a></li><li><a href="global.html#readAssets">readAssets</a></li><li><a href="global.html#resolveAssetPaths">resolveAssetPaths</a></li><li><a href="global.html#retryBusy">retryBusy</a></li><li><a href="global.html#rmApiServer">rmApiServer</a></li><li><a href="global.html#runExclusive">runExclusive</a></li><li><a href="global.html#scanAssetPaths">scanAssetPaths</a></li><li><a href="global.html#toErrText">toErrText</a></li><li><a href="global.html#toSafeName">toSafeName</a></li><li><a href="global.html#transErrAsset">transErrAsset</a></li><li><a href="global.html#writeAssets">writeAssets</a></li></ul>
+    
+</nav>
+
+<div id="main">
+    
+    <h1 class="page-title">addDocxToc.mjs</h1>
+    
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>import fs from 'fs'
+import os from 'os'
+import path from 'path'
+import { fileURLToPath } from 'url'
+import get from 'lodash-es/get.js'
+import isestr from 'wsemi/src/isestr.mjs'
+import isobj from 'wsemi/src/isobj.mjs'
+import ispint from 'wsemi/src/ispint.mjs'
+import cint from 'wsemi/src/cint.mjs'
+import fsIsFile from 'wsemi/src/fsIsFile.mjs'
+import execProcess from 'wsemi/src/execProcess.mjs'
+import { prepDocxToc, checkDocxToc } from './docxToc.mjs'
+import { toErrText, retryBusy, runExclusive } from './utils.mjs'
+
+
+//fdSelf (場景B: 套件自帶之 updateDocxToc.vbs 隨模組所在資料夾定位, 不依工作目錄)
+let fdSelf = path.dirname(fileURLToPath(import.meta.url))
+
+
+/**
+ * 取Word更新腳本updateDocxToc.vbs之位置
+ *
+ * 依序查找模組所在資料夾、其上層之src資料夾：以src執行時腳本位於同層；以打包後之dist執行時模組位於dist，腳本則隨套件之src發布，故另查../src。
+ *
+ * @param {String} [fd] 輸入模組所在資料夾位置字串，未給則為本模組所在資料夾
+ * @returns {String} 回傳腳本之絕對路徑字串，查無則回傳空字串
+ * @example
+ *
+ * import { getFpVbs } from 'w-md2docx/src/addDocxToc.mjs'
+ *
+ * console.log(getFpVbs())
+ * // => 'D:\\…\\node_modules\\w-md2docx\\src\\updateDocxToc.vbs'
+ *
+ */
+function getFpVbs(fd) {
+    if (!isestr(fd)) {
+        fd = fdSelf
+    }
+    let fps = [
+        path.resolve(fd, 'updateDocxToc.vbs'),
+        path.resolve(fd, '..', 'src', 'updateDocxToc.vbs'),
+    ]
+    for (let fp of fps) {
+        if (fsIsFile(fp)) {
+            return fp
+        }
+    }
+    return ''
+}
+
+
+//runWord: 以本機 Word 更新欄位並另存(cscript 執行 updateDocxToc.vbs)
+//  cscript 以系統字碼頁(中文 Windows 為 cp950)輸出 Word 回報之原因, 故以 codeCmd 'auto' 解碼, 否則中文原因成亂碼
+//  逾時時 execProcess 結束 cscript 之程序樹, 惟經 COM 啟動之 WINWORD 不在其中, 可能殘留
+async function runWord(fpVbs, fpIn, fpOut, timeout) {
+    let out = ''
+    let err = null
+    await execProcess('cscript', ['//nologo', fpVbs, fpIn, fpOut], { codeCmd: 'auto', timeout })
+        .then((r) => {
+            out = String(r).trim()
+        })
+        .catch((e) => {
+            err = toErrText(e).trim()
+        })
+    if (err !== null) {
+        return Promise.reject(`Word failed to update the fields: ${err}`)
+    }
+    if (!/(^|\n)ok$/.test(out)) {
+        return Promise.reject(`Word failed to update the fields: ${out}`)
+    }
+    let m = out.match(/pages=(\d+)/)
+    return { pages: m ? Number(m[1]) : null }
+}
+
+
+/**
+ * 於docx添加章節目錄、圖目錄、表目錄並重編頁碼
+ *
+ * 先以純結構處理準備內容(見docxToc.mjs之prepDocxToc：圖名表名編號改SEQ欄位、標題粗體改由樣式提供、插入目錄欄位、分節與頁碼)，再以本機Microsoft Word更新欄位(目錄內容與頁碼只有Word能算)，最後逐項核對目錄項目、連結落點、頁碼與分節，全部相符才覆寫原檔。故僅能於已安裝Word之Windows執行，Word之調用與轉檔共用同一佇列。
+ *
+ * 頁碼：第1個標題前有內容者視為封面，封面無頁碼；前置章節與目錄為大寫羅馬數字(I起)；正文自1起。無封面者不另建封面頁。
+ *
+ * 標題以段落之大綱階層判斷，第1個標題即視為正文之始(前置章節除外)：Markdown以單一#為文件標題、##為章者，文件標題會列為目錄第1層且正文自其起算；欲置於封面請以非標題之段落撰寫(如&lt;div pretitle>)。
+ *
+ * Word更新以cscript執行updateDocxToc.vbs(VBScript)：微軟已公告VBScript將轉為選用功能並於日後移除，屆時須另行啟用或改以其他方式調用Word。逾時被終止時，經COM啟動之WINWORD行程可能殘留，須人工確認後結束。
+ *
+ * 文件無標題段落時不處理並於回傳之skip說明原因；前提不符或核對不符時reject，原檔不變。
+ *
+ * @param {String} fpDocx 輸入docx檔位置字串，處理成功時就地覆寫
+ * @param {Object} [opt={}] 輸入設定物件，預設{}
+ * @param {Object} [opt.labels={fig:'圖',tab:'表'}] 輸入圖名、表名之標籤(段首「圖N」「表N」，編號後須接空白)，須為不含空白與引號之非空字串且兩者不同，英文報告可給{fig:'Figure',tab:'Table'}
+ * @param {Object} [opt.titles={toc:'目錄',fig:'圖目錄',tab:'表目錄'}] 輸入三目錄之標題
+ * @param {Array} [opt.frontHeadings=['摘要','ABSTRACT','Abstract']] 輸入前置章節之標題文字，文件開頭之標題與之相同者排在封面與目錄之間且不列入目錄
+ * @param {Integer} [opt.maxLevels=3] 輸入目錄列出之標題層數(自正文最高之大綱階層起算)，上限9
+ * @param {String} [opt.titleStyle='TPC11報告目錄(標題)'] 輸入三目錄標題之段落樣式名稱(預設為本套件所附temp_tpc.docx之樣式)，模板無此樣式時另建置中粗體樣式
+ * @param {Array} [opt.headStyles=['章標題','節標題','小節標題']] 輸入承接標題粗體之段落樣式名稱(依層)，模板已有同名樣式時須為粗體
+ * @param {Boolean} [opt.pageNumbers=true] 輸入是否分節重編頁碼，false時只插入三目錄(各自起新頁)，不動分節與頁碼
+ * @param {Boolean} [opt.keepLines=true] 輸入是否將目錄來源段落(列入目錄之標題、圖名、表名)設為段落內不分頁，使目錄之頁碼即該段落所在之頁(多行之表名跨頁時，首行留在前頁而表格在次頁，表目錄之頁碼會指向前頁)
+ * @param {Boolean} [opt.keepWithObject=true] 輸入是否使圖名、表名與其圖、表同頁：下段為表格或圖片時圖名表名設與下段同頁，上段為圖片時該段設與下段同頁(圖在頁底而圖名被擠到次頁時，圖目錄之頁碼會指向次頁)
+ * @param {Boolean} [opt.replaceTocStyles=true] 輸入是否以本套件之目錄項目樣式(第1層粗體、下層縮排並懸掛縮排、點線引導頁碼，字型沿用正文第1個標題)取代模板既有之toc N與table of figures樣式，false時沿用模板既有者、僅補建缺少者
+ * @param {Integer} [opt.timeoutMs=1800000] 輸入Word更新之逾時毫秒數，預設1800000(30分鐘)
+ * @returns {Promise} 回傳Promise，resolve回傳{skip,cover,levels,front,lists,toc,fig,tab,pagesFirst,pages,warns,ms}(toc、fig、tab為各目錄之項目數，lists為實際插入之目錄，pagesFirst為目錄第1項之頁碼)，無標題時僅回傳{skip,ms}；reject回傳錯誤訊息字串
+ * @example
+ *
+ * import addDocxToc from 'w-md2docx/src/addDocxToc.mjs'
+ *
+ * let r = await addDocxToc('./report.docx')
+ * console.log(r)
+ * // => { skip: '', cover: true, levels: [1, 2], front: [], lists: ['toc', 'fig', 'tab'], toc: 58, fig: 246, tab: 55, pagesFirst: '1', pages: 170, warns: [], ms: 12500 }
+ *
+ */
+async function addDocxToc(fpDocx, opt = {}) {
+    let msStart = Date.now()
+
+    //check
+    if (process.platform !== 'win32') {
+        return Promise.reject('addDocxToc requires Microsoft Word on Windows')
+    }
+    if (!isestr(fpDocx)) {
+        return Promise.reject('fpDocx must be a non-empty string')
+    }
+    fpDocx = path.resolve(fpDocx)
+    if (!fsIsFile(fpDocx)) {
+        return Promise.reject(`fpDocx[${fpDocx}] does not exist`)
+    }
+
+    //opt
+    if (!isobj(opt)) {
+        opt = {}
+    }
+
+    //timeoutMs
+    let timeoutMs = get(opt, 'timeoutMs', null)
+    if (!ispint(timeoutMs)) {
+        timeoutMs = 1800000
+    }
+    timeoutMs = cint(timeoutMs)
+
+    //fpVbs
+    let fpVbs = getFpVbs()
+    if (fpVbs === '') {
+        return Promise.reject(`updateDocxToc.vbs is not found in [${fdSelf}] or [${path.resolve(fdSelf, '..', 'src')}]`)
+    }
+
+    //準備內容(前提不符即拋錯, 原檔不變)
+    let prep = null
+    try {
+        prep = prepDocxToc(new Uint8Array(fs.readFileSync(fpDocx)), opt)
+    }
+    catch (err) {
+        return Promise.reject(`Failed to prepare the TOC: ${toErrText(err)}`)
+    }
+    let info = prep.info
+    if (info.skip) {
+        return { skip: info.skip, ms: Date.now() - msStart }
+    }
+
+    //Word 更新欄位(與轉檔共用佇列), 核對全部相符才覆寫原檔
+    let tag = `${process.pid}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    let fpTmpIn = path.join(os.tmpdir(), `wmd2docx_toc_${tag}_in.docx`)
+    let fpTmpOut = path.join(os.tmpdir(), `wmd2docx_toc_${tag}_out.docx`)
+    try {
+        fs.writeFileSync(fpTmpIn, prep.u8)
+        let rWord = await runExclusive(() => runWord(fpVbs, fpTmpIn, fpTmpOut, timeoutMs))
+        if (!fsIsFile(fpTmpOut) || fs.statSync(fpTmpOut).size === 0) {
+            return Promise.reject('Word reported success but the updated docx was not generated')
+        }
+        let chk = checkDocxToc(new Uint8Array(fs.readFileSync(fpTmpOut)), info)
+        if (!chk.ok) {
+            return Promise.reject(`TOC check failed (${chk.errs.length}): ${chk.errs.slice(0, 5).join('; ')}`)
+        }
+        await retryBusy(() => fs.promises.copyFile(fpTmpOut, fpDocx))
+        return {
+            skip: '',
+            cover: info.cover,
+            levels: info.levels,
+            front: info.front,
+            lists: info.lists,
+            toc: chk.stats.toc,
+            fig: chk.stats.fig,
+            tab: chk.stats.tab,
+            pagesFirst: chk.stats.pagesFirst,
+            pages: rWord.pages,
+            warns: info.warns,
+            ms: Date.now() - msStart,
+        }
+    }
+    catch (err) {
+        return Promise.reject(toErrText(err))
+    }
+    finally {
+        for (let fp of [fpTmpIn, fpTmpOut]) {
+            try {
+                if (fsIsFile(fp)) {
+                    fs.unlinkSync(fp)
+                }
+            }
+            catch (err) {
+                //暫存檔被鎖(如逾時殘留之 WINWORD 仍開啟), 留待系統暫存清理
+            }
+        }
+    }
+}
+
+
+export { getFpVbs }
+export default addDocxToc
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+    
+    
+</div>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Sat Oct 10 2026 14:24:07 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+</footer>
+
+<script>prettyPrint();</script>
+<script src="scripts/polyfill.js"></script>
+<script src="scripts/linenumber.js"></script>
+
+
+
+</body>
+</html>

@@ -1,7 +1,10 @@
 import fs from 'fs'
 import path from 'path'
+import { pathToFileURL } from 'url'
 import assert from 'assert'
 import rmApiServer from '../src/rmApiServer.mjs'
+import runWithFakeHtml2docx from './tools/fakeHtml2docx.mjs'
+import { parts, buildDocx } from './tools/docxFixture.mjs'
 
 
 //rmApiServer: 直打HTTP端點(不經UI); docx相關以html路徵替代, 不需Word
@@ -189,6 +192,35 @@ describe('rmApiServer', function() {
         assert.strict.equal(res.status, 200) //無token時不需標頭
         await s3.stop()
         await assert.rejects(fetch(`${u3}/api/health`, { signal: AbortSignal.timeout(3000) }))
+    })
+
+    it('POST /api/convert toc: 轉傳至轉檔且回應帶toc(子程序以假轉檔器取代w-html2docx, 文件無標題時為skip)', function() {
+        this.timeout(180000)
+        if (process.platform !== 'win32') {
+            this.skip()
+        }
+        let fpFixture = path.resolve(fdTmp, 'fixture-nohead.docx')
+        fs.writeFileSync(fpFixture, buildDocx(parts.cover() + parts.body('沒有標題')))
+        let portToc = 8203 //固定埠, 與本檔 8201、8202 錯開
+        let script = [
+            `let m = await import(process.env.T_MOD)`,
+            `let s = await m.default({ port: ${portToc}, host: '127.0.0.1', dirWork: process.env.T_WORK })`,
+            `let res = await fetch('http://127.0.0.1:${portToc}/api/convert', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ md: '# t', out: 'docx', toc: { maxLevels: 2, timeoutMs: 1 } }) })`,
+            `let j = await res.json()`,
+            `await s.stop()`,
+            `process.stdout.write('@@RESULT@@' + JSON.stringify({ status: res.status, success: j.success, toc: j.toc, hasDocx: typeof j.docx === 'object' }))`,
+        ].join('\n')
+        let res = runWithFakeHtml2docx(script, {
+            fpDocx: fpFixture,
+            env: {
+                T_MOD: pathToFileURL(path.resolve('./src/rmApiServer.mjs')).href,
+                T_WORK: path.resolve(fdTmp, 'work-toc'),
+            },
+        })
+        assert.strict.equal(res.status, 200)
+        assert.strict.equal(res.success, true)
+        assert.strict.equal(res.hasDocx, true)
+        assert.strict.equal(res.toc.skip, 'no heading (paragraph with an outline level) is found, the TOC is not added')
     })
 
 })

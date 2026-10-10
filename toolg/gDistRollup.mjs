@@ -29,6 +29,7 @@ async function rp() {
             'dompurify': 'dompurify', //w-md2html
             'jsdom': 'jsdom', //w-md2html(動態載入)
             '@hapi/hapi': '@hapi/hapi', //rmApiServer
+            'fflate': 'fflate', //docxToc
         },
         external: [
             'path',
@@ -46,6 +47,7 @@ async function rp() {
             'dompurify', //w-md2html
             'jsdom', //w-md2html(動態載入)
             '@hapi/hapi', //rmApiServer
+            'fflate', //docxToc
         ],
     })
 

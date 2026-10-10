@@ -28,7 +28,8 @@ import { mimeHtml, mimeDocx, toErrText, retryBusy, toSafeName, writeAssets, tran
  * @param {Object} [opt.optMd2html={}] 輸入傳予w-md2html之設定物件，預設{}
  * @param {Object} [opt.optHtml2docx={}] 輸入傳予w-html2docx之設定物件，預設{}
  * @param {Boolean} [opt.keepWork=false] 輸入是否保留工作資料夾供除錯布林值，預設false
- * @returns {Promise} 回傳Promise，resolve回傳結果物件{name,out,ms,nAssets,[msDocx],[html],[docx]}，其中html與docx為{fileName,mime,size,base64}，reject回傳錯誤訊息
+ * @param {Boolean|Object} [opt.toc=false] 輸入是否添加章節目錄、圖目錄、表目錄並重編頁碼(true或addDocxToc之設定物件)，傳予cvMdToDocx，僅於產出docx時有效，預設false
+ * @returns {Promise} 回傳Promise，resolve回傳結果物件{name,out,ms,nAssets,[msDocx],[html],[docx],[toc]}，其中html與docx為{fileName,mime,size,base64}，toc為addDocxToc之結果(有要求目錄且產出docx時才有)，reject回傳錯誤訊息
  * @example
  *
  * import cvMdTo from 'w-md2docx/src/cvMdTo.mjs'
@@ -147,6 +148,7 @@ async function cvMdTo(opt = {}) {
                 fpOutHtml: fpHtml,
                 optMd2html,
                 optHtml2docx,
+                toc: get(opt, 'toc', false),
             })
                 .catch((err) => {
                     errDocx = transErrAsset(toErrText(err))
@@ -163,6 +165,11 @@ async function cvMdTo(opt = {}) {
                 base64: buf.toString('base64'),
             }
             rt.msDocx = get(r, 'ms', 0)
+
+            //目錄結果(與 cvMdToDocx 一致帶出, 供服務端回應與用戶端得知是否已添加或略過)
+            if (isobj(get(r, 'toc'))) {
+                rt.toc = r.toc
+            }
 
         }
         else {

@@ -16,9 +16,10 @@ To view documentation or get support, visit [docs](https://yuda-lyu.github.io/w-
 
 > The converter `htmlToDocx.exe` is located and, when absent (e.g. npm blocked the `postinstall` script of `w-html2docx`), downloaded automatically by `w-html2docx` on the first docx conversion. It is resolved from the current working directory, so run your program from the project root that contains `node_modules/w-html2docx`, with network access for the first conversion.
 
-It provides four entries:
+It provides five entries:
 - `cvMdToDocx`: convert a Markdown file to a Docx file.
 - `cvMdTo`: convert Markdown content (with attached assets) to Html/Docx content in base64.
+- `addDocxToc`: add a table of contents, a table of figures and a table of tables to a docx, and renumber its pages.
 - `rmApiServer`: a hapi service (`GET /api/health`, `GET /api/selftest`, `POST /api/convert`) that wraps `cvMdTo`, so machines without Word can convert through it.
 - `rmApiClient`: a client for `rmApiServer`, reading a local Markdown file with its images and writing back the converted files.
 
@@ -83,3 +84,25 @@ let r = await WMd2docx.rmApiClient.cvMdTo({
 console.log(r)
 // => { ms: 6532, nAssets: 1, template: 'default', docx: { fp: '...', size: 40960 } }
 ```
+
+#### Tables of contents:
+> Give `toc: true` (or a settings object) to `cvMdToDocx`, `cvMdTo` or `rmApiClient.cvMdTo`, or call `addDocxToc` on a docx just converted. Word computes the entries and page numbers, so it also requires `Windows` with `Microsoft Word`, and the conversions and the TOC updates share one queue.
+```alias
+import WMd2docx from 'w-md2docx/src/WMd2docx.mjs'
+
+let r = await WMd2docx.cvMdToDocx('./test/report.md', './test/report.docx', {
+    fpInTemp: './src/templates/temp_tpc.docx',
+    toc: true, //or settings, e.g. { labels: { fig: 'Figure', tab: 'Table' }, titles: { toc: 'Contents', fig: 'List of Figures', tab: 'List of Tables' } }
+})
+console.log(r.toc)
+// => { skip: '', cover: true, levels: [1, 3], front: [], lists: ['toc', 'tab'], toc: 18, fig: 0, tab: 3, pagesFirst: '1', pages: 21, warns: [], ms: 3120 }
+```
+
+- Headings are paragraphs with an outline level. The tables are inserted before the first heading of the body, and only the headings of the body are listed (`maxLevels`, default 3).
+- Captions are paragraphs starting with a label, a number and a space, such as `圖1 名稱` and `表1 名稱` (`labels`, default `圖`/`表`). Their numbers must run from 1 in document order and become `SEQ` fields. A paragraph like `圖1：名稱` is not a caption and is reported in `warns`.
+- Pages: the content before the first heading is the cover, without a page number. The front headings (`frontHeadings`, default `摘要`/`ABSTRACT`/`Abstract`) and the tables are numbered I, II, III..., and the body from 1. A document without a cover gets no cover page. Set `pageNumbers: false` to keep the sections and page numbers as they are.
+- A Markdown file whose title is the only `#` heading lists the title as the first entry and starts the body from it. Write the title as a non-heading paragraph (e.g. `<div pretitle>`) to keep it on the cover.
+- The entries use the font of the first heading. `replaceTocStyles: false` keeps the `toc N` and `table of figures` styles of the template.
+- A document without headings is not changed and `toc.skip` tells why. Otherwise any mismatch rejects: `addDocxToc` leaves the docx unchanged, and `cvMdToDocx` deletes the docx it has just converted.
+- The service ignores `toc.timeoutMs` of a request, and `rmApiClient.cvMdTo` rejects without writing the docx when the service does not report the TOC result (a service without TOC support).
+- Word is driven by `cscript` with `updateDocxToc.vbs`. Microsoft has deprecated VBScript, which becomes a feature on demand before its removal from Windows. When an update times out, the `WINWORD` process started through COM may remain and has to be ended manually.

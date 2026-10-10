@@ -196,9 +196,10 @@ function readAssets(md, dirMd) {
  * @param {Object} [opt.optMd2html] 輸入傳予w-md2html之設定物件
  * @param {Object} [opt.optHtml2docx] 輸入傳予w-html2docx之設定物件
  * @param {Boolean} [opt.allowMissingAssets=false] 輸入是否容許md引用之資產檔不存在布林值，預設false
+ * @param {Boolean|Object} [opt.toc=false] 輸入是否於服務端添加章節目錄、圖目錄、表目錄並重編頁碼(true或addDocxToc之設定物件，其timeoutMs由服務端決定而不採用)；有產出docx而服務端回應未帶目錄結果時(服務端版本不支援)reject且不寫檔，預設false
  * @param {Number} [opt.timeoutMs=600000] 輸入逾時毫秒數，轉檔含Word啟動故預設10分鐘，預設600000
  * @param {Integer} [opt.retries=3] 輸入連線層失敗之重試次數整數，預設3
- * @returns {Promise} 回傳Promise，resolve回傳結果物件{ms,nAssets,template,[html],[docx]}，其中html與docx為{fp,size}，reject回傳錯誤訊息
+ * @returns {Promise} 回傳Promise，resolve回傳結果物件{ms,nAssets,template,[html],[docx],[toc]}，其中html與docx為{fp,size}，toc為服務端addDocxToc之結果，reject回傳錯誤訊息
  * @example
  *
  * import { cvMdTo } from 'w-md2docx/src/rmApiClient.mjs'
@@ -287,6 +288,11 @@ async function cvMdTo(opt = {}) {
     if (isestr(templateName)) {
         body.templateName = templateName.trim()
     }
+    let toc = get(opt, 'toc', false)
+    let needToc = (toc === true || isobj(toc))
+    if (needToc) {
+        body.toc = toc
+    }
     let fpInTemp = get(opt, 'fpInTemp', '')
     if (isestr(fpInTemp)) {
         fpInTemp = path.resolve(fpInTemp)
@@ -364,8 +370,16 @@ async function cvMdTo(opt = {}) {
         return Promise.reject(`Conversion failed: ${msg}`)
     }
 
+    //目錄結果: 有要求目錄且有產出 docx 時回應須帶 toc, 未帶代表服務端版本不支援而略過了目錄, 不寫出缺目錄之 docx
+    if (needToc && fpOutDocx !== '' && !isobj(get(rt, 'toc'))) {
+        return Promise.reject(`The conversion service did not report the TOC result, it may not support toc, please update w-md2docx on the service: ${url}`)
+    }
+
     //寫出並驗證產物(以實體檔大小為準)
     let rw = { ms: rt.ms, nAssets: rt.nAssets, template: rt.template }
+    if (isobj(get(rt, 'toc'))) {
+        rw.toc = rt.toc
+    }
 
     let writeOne = (fpOut, one, tag) => {
         if (fpOut === '') {

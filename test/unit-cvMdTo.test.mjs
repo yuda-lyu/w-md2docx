@@ -1,7 +1,10 @@
 import fs from 'fs'
 import path from 'path'
+import { pathToFileURL } from 'url'
 import assert from 'assert'
 import cvMdTo from '../src/cvMdTo.mjs'
+import runWithFakeHtml2docx from './tools/fakeHtml2docx.mjs'
+import { parts, buildDocx } from './tools/docxFixture.mjs'
 
 
 //cvMdTo之html路徑(不需Microsoft Word); docx路徑於unit-cvMdToDocx以Word守門測試
@@ -127,6 +130,34 @@ describe('cvMdTo', function() {
         let dirWork = path.resolve(fdTmp, 'work3')
         await assert.rejects(cvMdTo({ md: '# t\n\n<img src="no.png" />', out: 'html', dirWork }))
         assert.strict.equal(fs.readdirSync(dirWork).filter((v) => v.startsWith('job_')).length, 0)
+    })
+
+    it('out=html時toc不適用(無docx), 結果無toc', async function() {
+        let r = await cvMdTo({ md: '# t', out: 'html', toc: true })
+        assert.strict.equal(r.toc, undefined)
+    })
+
+    it('產出docx且toc時結果帶回cvMdToDocx之toc(假轉檔器取代w-html2docx, 文件無標題時為skip)', function() {
+        this.timeout(180000)
+        if (process.platform !== 'win32') {
+            this.skip()
+        }
+        let fpFixture = path.resolve(fdTmp, 'fixture-nohead.docx')
+        fs.writeFileSync(fpFixture, buildDocx(parts.cover() + parts.body('沒有標題')))
+        let script = [
+            `let m = await import(process.env.T_MOD)`,
+            `let r = await m.default({ md: '# t', out: 'docx', toc: true, dirWork: process.env.T_WORK })`,
+            `process.stdout.write('@@RESULT@@' + JSON.stringify({ toc: r.toc, size: r.docx.size }))`,
+        ].join('\n')
+        let res = runWithFakeHtml2docx(script, {
+            fpDocx: fpFixture,
+            env: {
+                T_MOD: pathToFileURL(path.resolve('./src/cvMdTo.mjs')).href,
+                T_WORK: path.resolve(fdTmp, 'work-toc'),
+            },
+        })
+        assert.strict.equal(res.toc.skip, 'no heading (paragraph with an outline level) is found, the TOC is not added')
+        assert.strict.equal(res.size, fs.statSync(fpFixture).size)
     })
 
 })

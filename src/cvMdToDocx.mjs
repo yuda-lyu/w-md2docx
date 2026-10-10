@@ -7,6 +7,7 @@ import isobj from 'wsemi/src/isobj.mjs'
 import fsIsFile from 'wsemi/src/fsIsFile.mjs'
 import WMd2html from 'w-md2html/src/WMd2html.mjs'
 import WHtml2docx from 'w-html2docx/src/WHtml2docx.mjs'
+import addDocxToc from './addDocxToc.mjs'
 import { toErrText, retryBusy, runExclusive } from './utils.mjs'
 
 
@@ -26,7 +27,8 @@ import { toErrText, retryBusy, runExclusive } from './utils.mjs'
  * @param {String} [opt.fpOutHtml=''] 輸入另存中介Html檔位置字串，未給則中介檔產於系統暫存夾並於轉檔後刪除，預設''
  * @param {Object} [opt.optMd2html={}] 輸入傳予w-md2html之設定物件(如imgWidthMax、fontSizeScale等)，預設{}
  * @param {Object} [opt.optHtml2docx={}] 輸入傳予w-html2docx之設定物件(如imgRatioWidthMax、fontFamilies等)，預設{}
- * @returns {Promise} 回傳Promise，resolve回傳結果物件{fpOutDocx,sizeDocx,sizeHtml,ms,[fpOutHtml]}，reject回傳錯誤訊息
+ * @param {Boolean|Object} [opt.toc=false] 輸入是否添加章節目錄、圖目錄、表目錄並重編頁碼(封面無頁碼、目錄為大寫羅馬數字、正文自1起)，true用預設，物件為addDocxToc之設定(見addDocxToc.mjs)；添加失敗時刪除本次產出之docx並reject，預設false
+ * @returns {Promise} 回傳Promise，resolve回傳結果物件{fpOutDocx,sizeDocx,sizeHtml,ms,[fpOutHtml],[toc]}，toc為addDocxToc之結果(文件無標題時僅含skip與ms)，reject回傳錯誤訊息
  * @example
  *
  * import cvMdToDocx from 'w-md2docx/src/cvMdToDocx.mjs'
@@ -36,9 +38,10 @@ import { toErrText, retryBusy, runExclusive } from './utils.mjs'
  *     optMd2html: {
  *         imgWidthMax: '500px',
  *     },
+ *     toc: true,
  * })
  * console.log(r)
- * // => { fpOutDocx: '…', sizeDocx: 39856, sizeHtml: 12345, ms: 8342 }
+ * // => { fpOutDocx: '…', sizeDocx: 41210, sizeHtml: 12345, ms: 12342, toc: { skip: '', cover: true, levels: [1, 3], lists: ['toc'], toc: 18, … } }
  *
  */
 async function cvMdToDocx(fpInMd, fpOutDocx, opt = {}) {
@@ -140,6 +143,29 @@ async function cvMdToDocx(fpInMd, fpOutDocx, opt = {}) {
         }
         let sizeDocx = fs.statSync(fpOutDocx).size
 
+        //添加目錄並重編頁碼
+        //note: 須於轉檔佇列之外呼叫, addDocxToc 內部之 Word 更新另行排隊; 若於佇列內呼叫, 兩者互等而永不完成
+        let toc = get(opt, 'toc', false)
+        let rToc = null
+        if (toc === true || isobj(toc)) {
+            let errToc = null
+            rToc = await addDocxToc(fpOutDocx, isobj(toc) ? toc : {})
+                .catch((err) => {
+                    errToc = toErrText(err)
+                })
+            if (errToc !== null) {
+                //why: 已產出之 docx 缺所要求之目錄, 留著會被以檔案存在判斷成敗之呼叫端當成成功, 故刪除後才 reject
+                try {
+                    fs.unlinkSync(fpOutDocx)
+                }
+                catch (err) {
+                    //被鎖則略過, 仍以 reject 回報失敗
+                }
+                return Promise.reject(`Failed to add the TOC: ${errToc}`)
+            }
+            sizeDocx = fs.statSync(fpOutDocx).size
+        }
+
         let rt = {
             fpOutDocx,
             sizeDocx,
@@ -148,6 +174,9 @@ async function cvMdToDocx(fpInMd, fpOutDocx, opt = {}) {
         }
         if (bKeepHtml) {
             rt.fpOutHtml = fpOutHtml
+        }
+        if (rToc !== null) {
+            rt.toc = rToc
         }
 
         return rt

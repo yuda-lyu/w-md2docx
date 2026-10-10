@@ -4,6 +4,7 @@ import get from 'lodash-es/get.js'
 import isstr from 'wsemi/src/isstr.mjs'
 import isestr from 'wsemi/src/isestr.mjs'
 import isarr from 'wsemi/src/isarr.mjs'
+import isobj from 'wsemi/src/isobj.mjs'
 import isfun from 'wsemi/src/isfun.mjs'
 import ispint from 'wsemi/src/ispint.mjs'
 import ispnum from 'wsemi/src/ispnum.mjs'
@@ -436,6 +437,35 @@ function transErrAsset(msg) {
 }
 
 
+/**
+ * 整理服務端請求之目錄設定
+ *
+ * 請求之toc為true或字串'true'時回傳true；為物件時回傳移除timeoutMs後之複本：Word更新之逾時屬服務端資源控管，不由請求端決定，否則請求端可用極短逾時反覆中斷Word更新，使經COM啟動之WINWORD行程殘留；其餘回傳false。
+ *
+ * @param {*} toc 輸入請求之toc
+ * @returns {Boolean|Object} 回傳false、true或設定物件
+ * @example
+ *
+ * console.log(normTocReq('true'))
+ * // => true
+ *
+ * console.log(normTocReq({ maxLevels: 2, timeoutMs: 1 }))
+ * // => { maxLevels: 2 }
+ *
+ */
+function normTocReq(toc) {
+    if (toc === true || toc === 'true') {
+        return true
+    }
+    if (isobj(toc)) {
+        let o = { ...toc }
+        delete o.timeoutMs
+        return o
+    }
+    return false
+}
+
+
 export {
     mimeHtml,
     mimeDocx,
@@ -449,5 +479,6 @@ export {
     resolveAssetPaths,
     writeAssets,
     cleanWorkDir,
-    transErrAsset
+    transErrAsset,
+    normTocReq
 }

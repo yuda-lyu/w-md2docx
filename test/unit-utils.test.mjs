@@ -14,7 +14,8 @@ import {
     resolveAssetPaths,
     writeAssets,
     cleanWorkDir,
-    transErrAsset
+    transErrAsset,
+    normTocReq
 } from '../src/utils.mjs'
 
 
@@ -380,6 +381,27 @@ describe('utils', function() {
 
         it('非字串轉為文字', function() {
             assert.strict.equal(transErrAsset(new Error('e1')), 'e1')
+        })
+
+    })
+
+    describe('normTocReq', function() {
+
+        it('true與字串true回傳true', function() {
+            assert.strict.equal(normTocReq(true), true)
+            assert.strict.equal(normTocReq('true'), true)
+        })
+
+        it('設定物件回傳移除timeoutMs之複本(逾時由服務端決定), 不改動請求物件', function() {
+            let o = { maxLevels: 2, labels: { fig: 'Figure' }, timeoutMs: 1 }
+            assert.strict.deepEqual(normTocReq(o), { maxLevels: 2, labels: { fig: 'Figure' } })
+            assert.strict.deepEqual(o, { maxLevels: 2, labels: { fig: 'Figure' }, timeoutMs: 1 })
+        })
+
+        it('其餘值回傳false', function() {
+            for (let v of [false, undefined, null, 'false', '', 1, []]) {
+                assert.strict.equal(normTocReq(v), false, JSON.stringify(v))
+            }
         })
 
     })

@@ -1,5 +1,6 @@
 import fs from 'fs'
 import path from 'path'
+import http from 'http'
 import assert from 'assert'
 import rmApiServer from '../src/rmApiServer.mjs'
 import rmApiClient, { cvMdTo, health, scanAssetPaths, readAssets } from '../src/rmApiClient.mjs'
@@ -239,6 +240,69 @@ describe('rmApiClient', function() {
         it('cvMdTo 逾時: 不重試, 訊息含timeoutMs', async function() {
             //以極短timeout使fetch逾時(轉檔需時>1ms)
             await assert.rejects(cvMdTo({ host, port, token, fpInMd: './test/report.md', fpOutHtml, timeoutMs: 1 }), (e) => e === `Conversion timed out (no response within 1 ms): ${url}`)
+        })
+
+    })
+
+    //toc: 以假服務回應(不需 Word)驗證請求內容與回應之處理
+    describe('cvMdTo toc(對接假服務, 不需Word)', function() {
+
+        let fdTmp = path.resolve(fdTmpRoot, 'toc')
+        let portFake = 8212 //固定埠, 與rmApiServer(8211)錯開
+        let urlFake = `http://127.0.0.1:${portFake}`
+        let srvFake = null
+        let resp = null
+        let bodies = []
+        let b64Docx = Buffer.from('PK fake docx').toString('base64')
+
+        before(async function() {
+            fs.mkdirSync(fdTmp, { recursive: true })
+            srvFake = http.createServer((req, res) => {
+                let cs = []
+                req.on('data', (c) => cs.push(c))
+                req.on('end', () => {
+                    bodies.push(JSON.parse(Buffer.concat(cs).toString('utf8')))
+                    res.writeHead(200, { 'content-type': 'application/json' })
+                    res.end(JSON.stringify(resp))
+                })
+            })
+            await new Promise((resolve) => srvFake.listen(portFake, '127.0.0.1', resolve))
+        })
+
+        after(async function() {
+            if (srvFake) {
+                await new Promise((resolve) => srvFake.close(resolve))
+            }
+        })
+
+        it('要求toc而服務端回應未帶toc(服務端版本不支援)時reject且不寫出docx', async function() {
+            resp = { success: true, ms: 1, nAssets: 1, template: 'default', out: 'docx', docx: { base64: b64Docx } }
+            let fpOut = path.resolve(fdTmp, 'old.docx')
+            await assert.rejects(cvMdTo({ url: urlFake, fpInMd: './test/report.md', fpOutDocx: fpOut, toc: true, retries: 0 }), (e) => e === `The conversion service did not report the TOC result, it may not support toc, please update w-md2docx on the service: ${urlFake}`)
+            assert.strict.equal(fs.existsSync(fpOut), false)
+            assert.strict.equal(bodies[bodies.length - 1].toc, true)
+        })
+
+        it('服務端回應帶toc時結果含toc並寫出docx; 設定物件原樣送出', async function() {
+            let toc = { skip: '', cover: true, lists: ['toc'], toc: 3 }
+            resp = { success: true, ms: 1, nAssets: 1, template: 'default', out: 'docx', docx: { base64: b64Docx }, toc }
+            let fpOut = path.resolve(fdTmp, 'new.docx')
+            let r = await cvMdTo({ url: urlFake, fpInMd: './test/report.md', fpOutDocx: fpOut, toc: { maxLevels: 2 }, retries: 0 })
+            assert.strict.deepEqual(r.toc, toc)
+            assert.strict.equal(r.docx.fp, fpOut)
+            assert.strict.equal(fs.readFileSync(fpOut, 'utf8'), 'PK fake docx')
+            assert.strict.deepEqual(bodies[bodies.length - 1].toc, { maxLevels: 2 })
+        })
+
+        it('未要求toc時請求不帶toc; 僅產出html時不要求回應帶toc', async function() {
+            resp = { success: true, ms: 1, nAssets: 1, template: 'default', out: 'docx', docx: { base64: b64Docx } }
+            let r = await cvMdTo({ url: urlFake, fpInMd: './test/report.md', fpOutDocx: path.resolve(fdTmp, 'plain.docx'), retries: 0 })
+            assert.strict.equal(r.toc, undefined)
+            assert.strict.equal('toc' in bodies[bodies.length - 1], false)
+            resp = { success: true, ms: 1, nAssets: 1, template: 'default', out: 'html', html: { base64: Buffer.from('<p>h</p>').toString('base64') } }
+            let r2 = await cvMdTo({ url: urlFake, fpInMd: './test/report.md', fpOutHtml: path.resolve(fdTmp, 'only.html'), toc: true, retries: 0 })
+            assert.strict.equal(r2.html.size > 0, true)
+            assert.strict.equal(bodies[bodies.length - 1].toc, true)
         })
 
     })

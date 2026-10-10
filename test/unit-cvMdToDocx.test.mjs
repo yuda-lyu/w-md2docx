@@ -6,27 +6,13 @@ import { execFileSync } from 'child_process'
 import assert from 'assert'
 import cvMdToDocx from '../src/cvMdToDocx.mjs'
 import cvMdTo from '../src/cvMdTo.mjs'
+import hasWord from './tools/hasWord.mjs'
+import runWithFakeHtml2docx from './tools/fakeHtml2docx.mjs'
+import { parts, buildDocx } from './tools/docxFixture.mjs'
 
 
 //fdTmpRoot: 本測試檔專用暫存夾, 各describe於其下自建子夾並於after刪除
 let fdTmpRoot = path.resolve('./test/_tmp/unit-cvMdToDocx')
-
-
-//hasWord: 本機是否可調用 Microsoft Word(Windows + Word.Application COM 已註冊)
-//why: docx 階段須真 Word, 無 Word 之機器實轉區塊整段略過;
-//     不以 htmlToDocx.exe 是否存在為條件——缺檔時 w-html2docx 於轉檔時自動下載, 以其為條件會使剛安裝之機器漏測實轉
-function hasWord() {
-    if (process.platform !== 'win32') {
-        return false
-    }
-    try {
-        execFileSync('reg', ['query', 'HKCR\\Word.Application'], { stdio: 'ignore', windowsHide: true })
-        return true
-    }
-    catch (err) {
-        return false
-    }
-}
 
 
 //readZipEntries: 讀取zip(docx)內各檔案, 回傳{name:Buffer}
@@ -170,6 +156,44 @@ describe('cvMdToDocx 實轉(需Windows+Microsoft Word)', function() {
         assert.strict.equal(r.out, 'docx')
         assert.strict.equal(r.html, undefined)
         assert.strict.equal(r.docx.size > 0, true)
+    })
+
+    it('toc:true: 添加目錄並重編頁碼, 結果含toc且docx分為封面、目錄、正文3節', async function() {
+        this.timeout(300000)
+        let fpMd = path.resolve(fdTmp, 'toc.md')
+        fs.writeFileSync(fpMd, [
+            '<div pretitle style="font-size:14pt; text-align:center;">',
+            '    目錄測試',
+            '</div>',
+            '',
+            '# 第一章 緒論',
+            '',
+            '內容。',
+            '',
+            '## 1.1 背景',
+            '',
+            '表n 參數一覽',
+            '',
+            '| 項目 | 數值 |',
+            '|---|---|',
+            '| a | 1 |',
+            '',
+            '# 第二章 方法',
+            '',
+            '內容。',
+            '',
+        ].join('\n'), 'utf8')
+        let fpOutToc = path.resolve(fdTmp, 'toc.docx')
+        let r = await cvMdToDocx(fpMd, fpOutToc, { fpInTemp, toc: true })
+        assert.strict.equal(r.toc.skip, '')
+        assert.strict.equal(r.toc.cover, true)
+        assert.strict.deepEqual(r.toc.lists, ['toc', 'tab'])
+        assert.strict.equal(r.toc.toc, 3)
+        assert.strict.equal(r.toc.tab, 1)
+        assert.strict.equal(r.sizeDocx, fs.statSync(fpOutToc).size)
+        let x = readZipEntries(fs.readFileSync(fpOutToc))['word/document.xml'].toString('utf8')
+        assert.strict.equal((x.match(/<w:sectPr\b/g) || []).length, 3)
+        assert.strict.equal(/<w:instrText[^>]*> TOC \\o "1-2" \\h \\z \\u <\/w:instrText>/.test(x), true)
     })
 
     it('cvMdTo out=both: html與docx內容皆回傳且msDocx存在', async function() {
@@ -343,6 +367,95 @@ describe('cvMdToDocx 缺轉檔器時交由w-html2docx取得(不得於上層事�
         assert.strict.equal(String(err).startsWith(prefix), true, String(err))
         assert.strict.equal(String(err).toLowerCase().includes(`(cwd=${fdCwd.toLowerCase()}, `), true, String(err))
         assert.strict.equal(String(err).endsWith(`, ${msgHint})`), true, String(err))
+    })
+
+})
+
+
+//添加目錄之接線、略過與失敗清理: 子程序內以假轉檔器取代 w-html2docx(將固定 docx 複製至輸出位置), 不需 Word
+describe('cvMdToDocx 添加目錄(假轉檔器, 不需Word)', function() {
+
+    //check, 目錄添加僅支援 Windows
+    if (process.platform !== 'win32') {
+        return
+    }
+
+    let { heading, body, capTab, table, cover } = parts
+    let fdTmp = path.resolve(fdTmpRoot, 'toc')
+    let fpMd = path.resolve(fdTmp, 'in.md')
+    let fpNoHead = path.resolve(fdTmp, 'fixture-nohead.docx')
+    let fpWord = path.resolve(fdTmp, 'fixture-word.docx')
+    let script = [
+        `import fs from 'fs'`,
+        `let m = await import(process.env.T_MOD)`,
+        `let r = null, err = null`,
+        `await m.default(process.env.T_MD, process.env.T_DOCX, JSON.parse(process.env.T_OPT)).then((v) => { r = v }).catch((e) => { err = e })`,
+        `process.stdout.write('@@RESULT@@' + JSON.stringify({ r, err, exists: fs.existsSync(process.env.T_DOCX) }))`,
+    ].join('\n')
+    let conv = (fpFixture, name, opt) => {
+        let fpDocx = path.resolve(fdTmp, `${name}.docx`)
+        let res = runWithFakeHtml2docx(script, {
+            fpDocx: fpFixture,
+            env: {
+                T_MOD: pathToFileURL(path.resolve('./src/cvMdToDocx.mjs')).href,
+                T_MD: fpMd,
+                T_DOCX: fpDocx,
+                T_OPT: JSON.stringify(opt),
+            },
+        })
+        return { ...res, fpDocx }
+    }
+
+    before(function() {
+        fs.mkdirSync(fdTmp, { recursive: true })
+        fs.writeFileSync(fpMd, '# 標題\n\n內容', 'utf8')
+        fs.writeFileSync(fpNoHead, buildDocx(cover() + body('沒有標題')))
+        fs.writeFileSync(fpWord, buildDocx(cover() + heading('第一章 緒論', 0, { pb: true }) + body('內容。') + capTab('表1 參數一覽') + table() + heading('第二章 方法', 0, { pb: true }) + body('內容。')))
+    })
+
+    after(function() {
+        fs.rmSync(fdTmpRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 })
+    })
+
+    it('toc未給、false或非true與物件之值時不添加目錄, 結果無toc', function() {
+        this.timeout(180000)
+        for (let [name, opt] of [['none', {}], ['false', { toc: false }], ['str', { toc: 'true' }]]) {
+            let res = conv(fpWord, name, opt)
+            assert.strict.equal(res.err, null, String(res.err))
+            assert.strict.equal(res.r.toc, undefined, name)
+            assert.strict.equal(fs.readFileSync(res.fpDocx).equals(fs.readFileSync(fpWord)), true, name) //未經改寫
+        }
+    })
+
+    it('文件無標題時略過: 結果之toc僅含skip與ms, docx保留', function() {
+        this.timeout(180000)
+        let res = conv(fpNoHead, 'nohead', { toc: true })
+        assert.strict.equal(res.err, null, String(res.err))
+        assert.strict.deepEqual(Object.keys(res.r.toc), ['skip', 'ms'])
+        assert.strict.equal(res.r.toc.skip, 'no heading (paragraph with an outline level) is found, the TOC is not added')
+        assert.strict.equal(res.exists, true)
+        assert.strict.equal(res.r.sizeDocx, fs.statSync(res.fpDocx).size)
+    })
+
+    it('添加目錄失敗(前提不符)時刪除本次產出之docx並reject', function() {
+        this.timeout(180000)
+        let res = conv(fpWord, 'badstyle', { toc: { headStyles: ['TPC11報告目錄(標題)'] } })
+        assert.strict.equal(res.r, null)
+        assert.strict.equal(res.err, 'Failed to add the TOC: Failed to prepare the TOC: the template has a style named "TPC11報告目錄(標題)" that is not bold, please specify another name with headStyles')
+        assert.strict.equal(res.exists, false)
+    })
+
+    it('無Word時: Word更新失敗之原因可讀, 刪除本次產出之docx並reject', function() {
+        this.timeout(180000)
+        if (hasWord()) {
+            console.log('[unit-cvMdToDocx] Microsoft Word is available, the no-Word failure path is covered by the real conversion tests')
+            this.skip()
+        }
+        let res = conv(fpWord, 'noword', { toc: true })
+        assert.strict.equal(res.r, null)
+        assert.strict.equal(/^Failed to add the TOC: Word failed to update the fields: /.test(String(res.err)), true, String(res.err))
+        assert.strict.equal(String(res.err).includes('�'), false, String(res.err))
+        assert.strict.equal(res.exists, false)
     })
 
 })
