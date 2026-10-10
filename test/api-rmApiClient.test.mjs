@@ -244,8 +244,8 @@ describe('rmApiClient', function() {
 
     })
 
-    //toc: 以假服務回應(不需 Word)驗證請求內容與回應之處理
-    describe('cvMdTo toc(對接假服務, 不需Word)', function() {
+    //toc與keepCaption: 以假服務回應(不需 Word)驗證請求內容與回應之處理
+    describe('cvMdTo toc與keepCaption(對接假服務, 不需Word)', function() {
 
         let fdTmp = path.resolve(fdTmpRoot, 'toc')
         let portFake = 8212 //固定埠, 與rmApiServer(8211)錯開
@@ -303,6 +303,29 @@ describe('rmApiClient', function() {
             let r2 = await cvMdTo({ url: urlFake, fpInMd: './test/report.md', fpOutHtml: path.resolve(fdTmp, 'only.html'), toc: true, retries: 0 })
             assert.strict.equal(r2.html.size > 0, true)
             assert.strict.equal(bodies[bodies.length - 1].toc, true)
+        })
+
+        it('要求keepCaption而服務端回應未帶其結果(服務端版本不支援)時reject且不寫出docx; 同時要求toc而回應只帶toc時亦同', async function() {
+            resp = { success: true, ms: 1, nAssets: 1, template: 'default', out: 'docx', docx: { base64: b64Docx } }
+            let fpOut = path.resolve(fdTmp, 'oldkeep.docx')
+            let msg = `The conversion service did not report the keepCaption result, it may not support keepCaption, please update w-md2docx on the service: ${urlFake}`
+            await assert.rejects(cvMdTo({ url: urlFake, fpInMd: './test/report.md', fpOutDocx: fpOut, keepCaption: true, retries: 0 }), (e) => e === msg)
+            assert.strict.equal(fs.existsSync(fpOut), false)
+            assert.strict.equal(bodies[bodies.length - 1].keepCaption, true)
+            resp = { ...resp, toc: { skip: '', toc: 3 } }
+            await assert.rejects(cvMdTo({ url: urlFake, fpInMd: './test/report.md', fpOutDocx: fpOut, keepCaption: true, toc: true, retries: 0 }), (e) => e === msg)
+            assert.strict.equal(fs.existsSync(fpOut), false)
+        })
+
+        it('服務端回應帶keepCaption時結果含之並寫出docx; 設定物件原樣送出', async function() {
+            let keepCaption = { figs: 1, tabs: 0, keepNext: 1, keepLines: 1, changed: true, warns: [], ms: 3 }
+            resp = { success: true, ms: 1, nAssets: 1, template: 'default', out: 'docx', docx: { base64: b64Docx }, keepCaption }
+            let fpOut = path.resolve(fdTmp, 'newkeep.docx')
+            let r = await cvMdTo({ url: urlFake, fpInMd: './test/report.md', fpOutDocx: fpOut, keepCaption: { labels: { fig: 'Figure', tab: 'Table' } }, retries: 0 })
+            assert.strict.deepEqual(r.keepCaption, keepCaption)
+            assert.strict.equal(fs.existsSync(fpOut), true)
+            assert.strict.deepEqual(bodies[bodies.length - 1].keepCaption, { labels: { fig: 'Figure', tab: 'Table' } })
+            assert.strict.equal('toc' in bodies[bodies.length - 1], false)
         })
 
     })

@@ -8,7 +8,7 @@ import cvMdToDocx from '../src/cvMdToDocx.mjs'
 import cvMdTo from '../src/cvMdTo.mjs'
 import hasWord from './tools/hasWord.mjs'
 import runWithFakeHtml2docx from './tools/fakeHtml2docx.mjs'
-import { parts, buildDocx } from './tools/docxFixture.mjs'
+import { parts, buildDocx, readPart, listParas } from './tools/docxFixture.mjs'
 
 
 //fdTmpRoot: 本測試檔專用暫存夾, 各describe於其下自建子夾並於after刪除
@@ -196,6 +196,37 @@ describe('cvMdToDocx 實轉(需Windows+Microsoft Word)', function() {
         assert.strict.equal(/<w:instrText[^>]*> TOC \\o "1-2" \\h \\z \\u <\/w:instrText>/.test(x), true)
     })
 
+    it('keepCaption:true: 圖片段與表名設與下段同頁, 交付之docx(由fflate寫出)可由Word開啟另存', async function() {
+        this.timeout(300000)
+        fs.copyFileSync('./test/cocktail.svg', path.resolve(fdTmp, 'cocktail.svg'))
+        let fpMd = path.resolve(fdTmp, 'keep.md')
+        fs.writeFileSync(fpMd, [
+            '# 第一章 圖表',
+            '',
+            '![p](cocktail.svg)',
+            '',
+            '圖n 雞尾酒',
+            '',
+            '表n 參數一覽',
+            '',
+            '| 項目 | 數值 |',
+            '|---|---|',
+            '| a | 1 |',
+            '',
+        ].join('\n'), 'utf8')
+        let fpOutKeep = path.resolve(fdTmp, 'keep.docx')
+        let r = await cvMdToDocx(fpMd, fpOutKeep, { fpInTemp, keepCaption: true })
+        assert.strict.deepEqual([r.keepCaption.figs, r.keepCaption.tabs, r.keepCaption.changed], [1, 1, true])
+        let ps = listParas(readPart(new Uint8Array(fs.readFileSync(fpOutKeep)), 'word/document.xml'))
+        let iFig = ps.findIndex((p) => p.text.startsWith('圖1'))
+        assert.strict.deepEqual([ps[iFig - 1].hasPic, ps[iFig - 1].keepNext, ps[iFig].keepLines], [true, true, true])
+        let pTab = ps.find((p) => p.text.startsWith('表1'))
+        assert.strict.deepEqual([pTab.keepNext, pTab.keepLines], [true, true])
+        //Word 開啟另存: 開檔失敗(檔案損毀)時 updateDocxToc.vbs 以離開碼 1 結束, execFileSync 拋錯
+        let out = execFileSync('cscript', ['//nologo', path.resolve('./src/updateDocxToc.vbs'), fpOutKeep, path.resolve(fdTmp, 'keep-resaved.docx')], { encoding: 'utf8', windowsHide: true })
+        assert.strict.equal(/(^|\n)ok\s*$/.test(out.trim()), true, out)
+    })
+
     it('cvMdTo out=both: html與docx內容皆回傳且msDocx存在', async function() {
         this.timeout(180000)
         let r = await cvMdTo({ md: '# 內容轉檔\n\n段落', name: '內容', out: 'both', fpInTemp, dirWork: fdTmp })
@@ -372,19 +403,21 @@ describe('cvMdToDocx 缺轉檔器時交由w-html2docx取得(不得於上層事�
 })
 
 
-//添加目錄之接線、略過與失敗清理: 子程序內以假轉檔器取代 w-html2docx(將固定 docx 複製至輸出位置), 不需 Word
-describe('cvMdToDocx 添加目錄(假轉檔器, 不需Word)', function() {
+//轉檔後處理(圖名表名同頁、添加目錄)之接線、略過與失敗清理: 子程序內以假轉檔器取代 w-html2docx(將固定 docx 複製至輸出位置), 不需 Word
+describe('cvMdToDocx 轉檔後處理(假轉檔器, 不需Word)', function() {
 
-    //check, 目錄添加僅支援 Windows
+    //check, 轉檔與目錄添加僅支援 Windows
     if (process.platform !== 'win32') {
         return
     }
 
-    let { heading, body, capTab, table, cover } = parts
-    let fdTmp = path.resolve(fdTmpRoot, 'toc')
+    let { heading, body, pic, capFig, capTab, capTabPlain, table, cover } = parts
+    let fdTmp = path.resolve(fdTmpRoot, 'post')
     let fpMd = path.resolve(fdTmp, 'in.md')
     let fpNoHead = path.resolve(fdTmp, 'fixture-nohead.docx')
     let fpWord = path.resolve(fdTmp, 'fixture-word.docx')
+    let fpFig = path.resolve(fdTmp, 'fixture-fig.docx') //含圖(僅結構標記, 不可交 Word)與表, 無標題
+    let fpNotDocx = path.resolve(fdTmp, 'fixture-notdocx.docx')
     let script = [
         `import fs from 'fs'`,
         `let m = await import(process.env.T_MOD)`,
@@ -411,6 +444,8 @@ describe('cvMdToDocx 添加目錄(假轉檔器, 不需Word)', function() {
         fs.writeFileSync(fpMd, '# 標題\n\n內容', 'utf8')
         fs.writeFileSync(fpNoHead, buildDocx(cover() + body('沒有標題')))
         fs.writeFileSync(fpWord, buildDocx(cover() + heading('第一章 緒論', 0, { pb: true }) + body('內容。') + capTab('表1 參數一覽') + table() + heading('第二章 方法', 0, { pb: true }) + body('內容。')))
+        fs.writeFileSync(fpFig, buildDocx(cover() + body('前文。') + pic() + capFig('圖1 系統架構') + capTabPlain('表1 參數一覽') + table()))
+        fs.writeFileSync(fpNotDocx, 'not a docx')
     })
 
     after(function() {
@@ -454,7 +489,56 @@ describe('cvMdToDocx 添加目錄(假轉檔器, 不需Word)', function() {
         let res = conv(fpWord, 'noword', { toc: true })
         assert.strict.equal(res.r, null)
         assert.strict.equal(/^Failed to add the TOC: Word failed to update the fields: /.test(String(res.err)), true, String(res.err))
-        assert.strict.equal(String(res.err).includes('�'), false, String(res.err))
+        assert.strict.equal(String(res.err).includes(String.fromCharCode(0xFFFD)), false, String(res.err)) //以 utf-8 解碼系統字碼頁之原因會含 U+FFFD
+        assert.strict.equal(res.exists, false)
+    })
+
+    it('keepCaption: 圖名表名與其圖表同頁, 結果含統計, docx經改寫且不留暫存檔', function() {
+        this.timeout(180000)
+        let res = conv(fpFig, 'keep', { keepCaption: true })
+        assert.strict.equal(res.err, null, String(res.err))
+        let k = res.r.keepCaption
+        assert.strict.equal(typeof k.ms, 'number')
+        delete k.ms
+        assert.strict.deepEqual(k, { figs: 1, tabs: 1, keepNext: 2, keepLines: 2, changed: true, warns: [] })
+        assert.strict.equal(res.r.sizeDocx, fs.statSync(res.fpDocx).size)
+        let ps = listParas(readPart(new Uint8Array(fs.readFileSync(res.fpDocx)), 'word/document.xml'))
+        let i = ps.findIndex((p) => p.text === '圖1 系統架構')
+        assert.strict.deepEqual([ps[i - 1].hasPic, ps[i - 1].keepNext, ps[i].keepLines], [true, true, true])
+        assert.strict.deepEqual(fs.readdirSync(fdTmp).filter((v) => v.endsWith('.tmp')), [])
+    })
+
+    it('keepCaption未給、false或非true與物件之值時不處理, docx未經改寫且結果無keepCaption', function() {
+        this.timeout(180000)
+        for (let [name, opt] of [['knone', {}], ['kfalse', { keepCaption: false }], ['kstr', { keepCaption: 'true' }]]) {
+            let res = conv(fpFig, name, opt)
+            assert.strict.equal(res.err, null, String(res.err))
+            assert.strict.equal(res.r.keepCaption, undefined, name)
+            assert.strict.equal(fs.readFileSync(res.fpDocx).equals(fs.readFileSync(fpFig)), true, name)
+        }
+    })
+
+    it('keepCaption而文件無圖名表名時不改寫檔案', function() {
+        this.timeout(180000)
+        let res = conv(fpNoHead, 'knocap', { keepCaption: true })
+        assert.strict.equal(res.err, null, String(res.err))
+        assert.strict.equal(res.r.keepCaption.changed, false)
+        assert.strict.equal(fs.readFileSync(res.fpDocx).equals(fs.readFileSync(fpNoHead)), true)
+    })
+
+    it('keepCaption與toc並用而文件無標題: 目錄略過, 同頁照常套用', function() {
+        this.timeout(180000)
+        let res = conv(fpFig, 'kboth', { keepCaption: true, toc: true })
+        assert.strict.equal(res.err, null, String(res.err))
+        assert.strict.equal(res.r.toc.skip, 'no heading (paragraph with an outline level) is found, the TOC is not added')
+        assert.strict.deepEqual([res.r.keepCaption.changed, res.r.keepCaption.keepNext], [true, 2])
+    })
+
+    it('keepCaption處理失敗(非docx)時刪除本次產出之docx並reject', function() {
+        this.timeout(180000)
+        let res = conv(fpNotDocx, 'kbad', { keepCaption: true })
+        assert.strict.equal(res.r, null)
+        assert.strict.equal(/^Failed to keep the captions with their figures and tables: /.test(String(res.err)), true, String(res.err))
         assert.strict.equal(res.exists, false)
     })
 

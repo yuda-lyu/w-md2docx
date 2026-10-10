@@ -16,7 +16,7 @@ import fsIsFile from 'wsemi/src/fsIsFile.mjs'
 import fsIsFolder from 'wsemi/src/fsIsFolder.mjs'
 import Hapi from '@hapi/hapi'
 import cvMdTo from './cvMdTo.mjs'
-import { toErrText, checkDocxReady, getQueueSize, cleanWorkDir, normTocReq } from './utils.mjs'
+import { toErrText, checkDocxReady, getQueueSize, cleanWorkDir, normTocReq, normKeepReq } from './utils.mjs'
 
 
 //fdSelf (場景B: 內建模板隨模組所在資料夾, 不依啟動時之相對路徑漂移)
@@ -62,7 +62,7 @@ function isInputError(msg) {
  *
  * 以hapi提供三個端點：GET /api/health(健康檢查與環境狀態)、GET /api/selftest(實跑一次最小轉檔驗證本機Word可用)、POST /api/convert(轉檔主端點，JSON參數同cvMdTo，另可用templateName指定服務端模板或templateBase64夾帶模板；query帶download=1時單一格式直接回傳二進位檔)。
  *
- * 請求之toc(true或addDocxToc之設定物件)轉傳cvMdTo以添加目錄，其timeoutMs不採用(Word更新之逾時由服務端決定)，結果之toc隨回應傳回。
+ * 請求之keepCaption(true或{labels})轉傳cvMdTo使圖名表名與其圖表同頁；請求之toc(true或addDocxToc之設定物件)轉傳cvMdTo以添加目錄，其timeoutMs不採用(Word更新之逾時由服務端決定)；兩者之結果隨回應傳回。
  *
  * @param {Object} [opt={}] 輸入設定物件，預設{}
  * @param {Integer} [opt.port=22000] 輸入服務埠號整數，給0則由系統自動配置(實際埠號見回傳之server.info.port)，預設22000
@@ -239,6 +239,7 @@ async function rmApiServer(opt = {}) {
                 optMd2html: get(inp, 'optMd2html', {}),
                 optHtml2docx: get(inp, 'optHtml2docx', {}),
                 keepWork: (keepTmp === true || keepTmp === 'true' || keepWork === true || keepWork === 'true'),
+                keepCaption: normKeepReq(get(inp, 'keepCaption', false)), //圖名表名與其圖表同頁
                 toc: normTocReq(get(inp, 'toc', false)), //添加目錄(請求端之 timeoutMs 不採用)
             })
             return {

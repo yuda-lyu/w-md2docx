@@ -3,8 +3,9 @@ import path from 'path'
 import { unzipSync, zipSync, strFromU8, strToU8 } from 'fflate'
 
 
-//docxFixture: 以 docx 模板之樣式、頁尾與分節為底, 合成仿 w-html2docx 產出之 document.xml, 供不需 Word 之目錄測試
-//  標題為段落直接設定之大綱階層與直接粗體、圖在上圖名在下、表名在上帶 keepNext(HTML 之 page-break-after:avoid)、表格內文字不計為圖表名
+//docxFixture: 以 docx 模板之樣式、頁尾與分節為底, 合成仿 w-html2docx 產出之 document.xml, 供不需 Word 之目錄與圖名表名同頁測試
+//  標題為段落直接設定之大綱階層與直接粗體、圖在上圖名在下、表名在上帶 keepNext(來源 md 手寫之 page-break-after:avoid)、表格內文字不計為圖表名
+//  注意: 本檔為合成之測試資料, 非真實轉出之 docx。標題段落所帶之 keepNext 為撰寫時之假設, 未以 w-html2docx 之真實輸出驗證, 不可作為其產出格式之證據
 //  pic() 僅含 w:drawing 標記供純結構處理判斷, 非完整圖片, 含 pic() 之 fixture 不可交 Word 開啟
 
 
@@ -20,6 +21,8 @@ let body = (t) => para(run(t), '<w:spacing w:line="360" w:lineRule="auto"/><w:in
 let pic = () => para('<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="3000000" cy="2000000"/><wp:docPr id="1" name="pic"/></wp:inline></w:drawing></w:r>', '<w:jc w:val="center"/>')
 let capFig = (t) => para(run(t), '<w:jc w:val="center"/>')
 let capTab = (t) => para(run(t), '<w:keepNext/><w:jc w:val="center"/>')
+let capTabPlain = (t) => para(run(t), '<w:jc w:val="center"/>') //表名未帶 keepNext(來源 md 未手寫 page-break-after:avoid)
+let blank = () => para('', '<w:spacing w:after="0"/>') //空段落(如 w-md2html 之換行標記轉檔後)
 let table = (t = '表1 表格內之文字') => `<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/></w:tblPr><w:tblGrid><w:gridCol w:w="4000"/></w:tblGrid><w:tr><w:tc><w:tcPr><w:tcW w:w="4000" w:type="dxa"/></w:tcPr>${para(run(t))}</w:tc></w:tr></w:tbl>`
 let cover = () => para(run('測試計畫報告', { b: true, sz: 40 }), '<w:jc w:val="center"/>') + para(run('2026年10月'), '<w:jc w:val="center"/>')
 
@@ -213,7 +216,7 @@ function simulateWordToc(u8, info, opt = {}) {
 }
 
 
-let parts = { run, para, heading, body, pic, capFig, capTab, table, cover }
+let parts = { run, para, heading, body, pic, capFig, capTab, capTabPlain, blank, table, cover }
 
 
 export { parts, buildDocx, getSectFinal, readPart, listParas, checkXml, simulateWordToc, textOf }

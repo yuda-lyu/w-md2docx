@@ -15,7 +15,9 @@ import {
     writeAssets,
     cleanWorkDir,
     transErrAsset,
-    normTocReq
+    normReqOpt,
+    normTocReq,
+    normKeepReq
 } from '../src/utils.mjs'
 
 
@@ -381,6 +383,31 @@ describe('utils', function() {
 
         it('非字串轉為文字', function() {
             assert.strict.equal(transErrAsset(new Error('e1')), 'e1')
+        })
+
+    })
+
+    describe('normReqOpt/normKeepReq', function() {
+
+        it('normReqOpt: true與字串true回true; 物件回移除omit之鍵後之複本且不改原物件; 其餘回false', function() {
+            assert.strict.equal(normReqOpt(true), true)
+            assert.strict.equal(normReqOpt('true'), true)
+            let o = { a: 1, b: 2 }
+            assert.strict.deepEqual(normReqOpt(o, ['b']), { a: 1 })
+            assert.strict.deepEqual(o, { a: 1, b: 2 })
+            assert.strict.deepEqual(normReqOpt(o, 'b'), { a: 1, b: 2 }) //omit非陣列視為無
+            for (let v of [false, undefined, null, 'false', '', 1, []]) {
+                assert.strict.equal(normReqOpt(v), false, JSON.stringify(v))
+            }
+        })
+
+        it('normKeepReq: true、字串true與設定物件(複本)原樣通過, 其餘回false', function() {
+            assert.strict.equal(normKeepReq(true), true)
+            assert.strict.equal(normKeepReq('true'), true)
+            let o = { labels: { fig: 'Figure', tab: 'Table' } }
+            assert.strict.deepEqual(normKeepReq(o), o)
+            assert.strict.notEqual(normKeepReq(o), o)
+            assert.strict.equal(normKeepReq('x'), false)
         })
 
     })

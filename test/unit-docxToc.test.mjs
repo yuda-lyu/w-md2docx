@@ -4,7 +4,7 @@ import { normTocOpt, prepDocxToc, checkDocxToc } from '../src/docxToc.mjs'
 import { parts, buildDocx, getSectFinal, readPart, listParas, checkXml, simulateWordToc } from './tools/docxFixture.mjs'
 
 
-let { run, para, heading, body, pic, capFig, capTab, table, cover } = parts
+let { run, para, heading, body, pic, capFig, capTab, blank, table, cover } = parts
 let fpTplWh = './node_modules/w-html2docx/src/tmp.docx' //w-html2docx 內建模板: 無 TPC 樣式與目錄樣式
 let escRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
@@ -176,6 +176,12 @@ describe('docxToc', function() {
             assert.strict.equal(byText(rStd.ps, '表1 參數一覽').keepNext, true)
         })
 
+        it('圖片與圖名之間夾空段落時, 空段落一併設與下段同頁(與keepCaption共用之規則)', function() {
+            let r = prep(cover() + bodyStd.replace(pic() + capFig('圖1 系統架構'), pic() + blank() + capFig('圖1 系統架構')))
+            let i = r.ps.findIndex((p) => p.text === '圖1 系統架構')
+            assert.strict.deepEqual([r.ps[i - 2].hasPic, r.ps[i - 2].keepNext, r.ps[i - 1].text, r.ps[i - 1].keepNext], [true, true, '', true])
+        })
+
         it('正文第1個標題移除開頭之分頁符號(新節自新頁開始), 其後各章保留', function() {
             assert.strict.equal(byText(rStd.ps, '第一章 緒論').pageBreakRun, false)
             assert.strict.equal(byText(rStd.ps, '第二章 方法').pageBreakRun, true)
@@ -272,7 +278,7 @@ describe('docxToc', function() {
             let r = prep(cover() + bodyStd.replace('圖1 系統架構', '圖1：系統架構').replace('圖2 流程', '圖2：流程'))
             assert.strict.deepEqual(r.info.lists, ['toc', 'tab'])
             assert.strict.equal(r.instr.some((v) => v.startsWith('SEQ 圖')), false)
-            assert.strict.deepEqual(r.info.warns, ['2 paragraph(s) start with a figure or table label and a number that is not followed by a space, so they are not treated as captions nor listed: 圖1：系統架構; 圖2：流程'])
+            assert.strict.deepEqual(r.info.warns, ['2 paragraph(s) start with a figure or table label and a number that is not followed by a space, so they are not treated as captions: 圖1：系統架構; 圖2：流程'])
         })
 
         it('英文報告: labels與titles改英文', function() {

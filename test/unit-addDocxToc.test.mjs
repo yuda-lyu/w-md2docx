@@ -112,7 +112,7 @@ describe('addDocxToc', function() {
             assert.strict.equal(res, null)
             assert.strict.equal(typeof err, 'string')
             assert.strict.equal(err.startsWith('Word failed to update the fields: '), true, err)
-            assert.strict.equal(err.includes('�'), false, err) //Word 之原因為系統字碼頁, 以 utf-8 解碼會成亂碼
+            assert.strict.equal(err.includes(String.fromCharCode(0xFFFD)), false, err) //Word 之原因為系統字碼頁, 以 utf-8 解碼會成亂碼(含 U+FFFD)
             assert.strict.equal(sha(fp), h)
         }
     })

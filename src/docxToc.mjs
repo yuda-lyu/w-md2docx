@@ -1,16 +1,18 @@
 import get from 'lodash-es/get.js'
-import { unzipSync, zipSync, strFromU8, strToU8 } from 'fflate'
+import { unzipSync, strFromU8 } from 'fflate'
 import isobj from 'wsemi/src/isobj.mjs'
 import isarr from 'wsemi/src/isarr.mjs'
 import isestr from 'wsemi/src/isestr.mjs'
 import isbol from 'wsemi/src/isbol.mjs'
 import ispint from 'wsemi/src/ispint.mjs'
 import cint from 'wsemi/src/cint.mjs'
+import { unesc, esc, escRe, textOf, tElem, pPrOf, scanParas, createEdits, writeDocx } from './docxXml.mjs'
+import { labelsDef, normLabels, hasObj, findCaptions, warnCapsLike, addKeepLines, addKeepNext, planKeepNext } from './docxKeep.mjs'
 
 
 //目錄之預設設定(中文報告)
 let tocDef = {
-    labels: { fig: '圖', tab: '表' }, //圖名、表名之標籤(段首「圖N」「表N」; 亦為 SEQ 欄位之識別名稱)
+    labels: { ...labelsDef }, //圖名、表名之標籤(段首「圖N」「表N」; 亦為 SEQ 欄位之識別名稱)
     titles: { toc: '目錄', fig: '圖目錄', tab: '表目錄' }, //三目錄之標題
     frontHeadings: ['摘要', 'ABSTRACT', 'Abstract'], //位於封面與目錄之間之前置章節(文件開頭之標題文字與之相同者)
     maxLevels: 3, //目錄列出之標題層數(自正文最高之大綱階層起算)
@@ -26,7 +28,7 @@ let tocDef = {
 /**
  * 整理添加目錄之設定
  *
- * 各設定非有效值時採預設：labels之fig與tab須為不含空白、引號與反斜線之非空字串且兩者不同(其為SEQ欄位之識別名稱，並置於TOC欄位之\c參數內)，否則兩者皆退回預設；titles之各值須為非空字串；frontHeadings須為陣列(僅保留非空字串)；maxLevels須為正整數，上限9；titleStyle須為非空字串；headStyles須為非空字串組成之非空陣列；pageNumbers、keepLines、keepWithObject、replaceTocStyles須為布林值。
+ * 各設定非有效值時採預設：labels見docxKeep.mjs之normLabels(fig與tab須為不含空白、引號與反斜線之非空字串，否則該項退回預設，兩者相同時皆退回預設)；titles之各值須為非空字串；frontHeadings須為陣列(僅保留非空字串)；maxLevels須為正整數，上限9；titleStyle須為非空字串；headStyles須為非空字串組成之非空陣列；pageNumbers、keepLines、keepWithObject、replaceTocStyles須為布林值。
  *
  * @param {Object|Boolean} [opt={}] 輸入設定物件，true或非物件時皆用預設，預設{}
  * @returns {Object} 回傳設定物件{labels,titles,frontHeadings,maxLevels,titleStyle,titleStyleGiven,headStyles,pageNumbers,keepLines,keepWithObject,replaceTocStyles}，titleStyleGiven表示titleStyle是否由呼叫端指定
@@ -39,19 +41,7 @@ function normTocOpt(opt = {}) {
     }
 
     //labels, 須為單一字詞(SEQ 識別名稱不可含空白; 引號與反斜線會截斷 TOC 欄位之 \c 參數), 兩者相同時無法區分圖名與表名
-    let isLabel = (v) => isestr(v) && !/[\s"\\]/.test(v)
-    let labels = {
-        fig: get(opt, 'labels.fig', ''),
-        tab: get(opt, 'labels.tab', ''),
-    }
-    for (let k of ['fig', 'tab']) {
-        if (!isLabel(labels[k])) {
-            labels[k] = tocDef.labels[k]
-        }
-    }
-    if (labels.fig === labels.tab) {
-        labels = { ...tocDef.labels }
-    }
+    let labels = normLabels(get(opt, 'labels', {}))
 
     //titles
     let titles = {}
@@ -111,37 +101,6 @@ function normTocOpt(opt = {}) {
         keepWithObject: bols.keepWithObject,
         replaceTocStyles: bols.replaceTocStyles,
     }
-}
-
-
-//xml 之文字與跳脫
-let unesc = (s) => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, '\'').replace(/&amp;/g, '&')
-let esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-let escRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-let textOf = (x) => unesc((x.match(/<w:t(?: [^>]*)?>[^<]*<\/w:t>/g) || []).map((t) => t.replace(/<[^>]+>/g, '')).join(''))
-let tElem = (s) => `<w:t${/^\s|\s$/.test(s) ? ' xml:space="preserve"' : ''}>${esc(s)}</w:t>`
-let pPrOf = (p) => (p.match(/^<w:p\b[^>]*>\s*(<w:pPr>[\s\S]*?<\/w:pPr>)/) || [])[1] || ''
-
-
-//scanParas: 依序列出段落與其是否位於表格內(表格內之段落不作為標題、圖名與表名)
-function scanParas(doc) {
-    let out = []
-    let depth = 0
-    let re = /<w:tbl\b[^>]*>|<\/w:tbl>|<w:p\b[^>]*\/>|<w:p\b[^>]*>[\s\S]*?<\/w:p>/g
-    let m
-    while ((m = re.exec(doc)) !== null) {
-        let s = m[0]
-        if (s.startsWith('<w:tbl')) {
-            depth++
-            continue
-        }
-        if (s === '</w:tbl>') {
-            depth--
-            continue
-        }
-        out.push({ start: m.index, end: m.index + s.length, xml: s, inTbl: depth > 0 })
-    }
-    return out
 }
 
 
@@ -257,38 +216,6 @@ function moveBold(p, styleId) {
 }
 
 
-//addKeepLines: 段落設為段落內不分頁(pPr 子元素順序: pStyle, keepNext, keepLines, …)
-function addKeepLines(p) {
-    let pPr = pPrOf(p)
-    if (/<w:keepLines\/>|<w:keepLines w:val="(?:1|true|on)"\/>/.test(pPr)) {
-        return p
-    }
-    if (/<w:keepLines\b/.test(pPr)) {
-        return p.replace(/<w:keepLines\b[^>]*\/>/, '<w:keepLines/>')
-    }
-    if (pPr) {
-        return p.replace(/^(<w:p\b[^>]*>\s*<w:pPr>(?:<w:pStyle\b[^>]*\/>)?(?:<w:keepNext\b[^>]*\/>)?)/, '$1<w:keepLines/>')
-    }
-    return p.replace(/^(<w:p\b[^>]*>)/, '$1<w:pPr><w:keepLines/></w:pPr>')
-}
-
-
-//addKeepNext: 段落設為與下段同頁(pPr 子元素順序: pStyle, keepNext, keepLines, …)
-function addKeepNext(p) {
-    let pPr = pPrOf(p)
-    if (/<w:keepNext\/>|<w:keepNext w:val="(?:1|true|on)"\/>/.test(pPr)) {
-        return p
-    }
-    if (/<w:keepNext\b/.test(pPr)) {
-        return p.replace(/<w:keepNext\b[^>]*\/>/, '<w:keepNext/>')
-    }
-    if (pPr) {
-        return p.replace(/^(<w:p\b[^>]*>\s*<w:pPr>(?:<w:pStyle\b[^>]*\/>)?)/, '$1<w:keepNext/>')
-    }
-    return p.replace(/^(<w:p\b[^>]*>)/, '$1<w:pPr><w:keepNext/></w:pPr>')
-}
-
-
 //dropLeadBreak: 移除段落開頭之分頁(段落前分頁、開頭只含分頁符號之文字段); 新的一節已自新頁開始, 留著會多出空白頁
 function dropLeadBreak(p) {
     let p2 = p.replace(/<w:pageBreakBefore\/>/, '')
@@ -337,7 +264,6 @@ function prepDocxToc(u8, opt = {}) {
     let si = styleInfo(sty)
     let paras = scanParas(doc)
     let tops = paras.filter((p) => !p.inTbl)
-    let hasPic = (p) => /<w:drawing\b|<w:pict\b|<w:object\b/.test(p.xml)
     let levelOf = (p) => {
         let pPr = pPrOf(p)
         let m = pPr.match(/<w:outlineLvl w:val="(\d)"\/>/)
@@ -373,27 +299,12 @@ function prepDocxToc(u8, opt = {}) {
     let headsIn = body.filter((h) => h.lv <= l1)
 
     //hasCover: 第 1 個標題之前有內容(含文字或圖片之段落、表格)才視為有封面; 無封面時不建封面節, 免得多出空白首頁
-    let hasCover = /<w:tbl\b/.test(doc.slice(0, h0.start)) || tops.some((p) => p.end <= h0.start && (textOf(p.xml).trim() !== '' || hasPic(p)))
+    let hasCover = /<w:tbl\b/.test(doc.slice(0, h0.start)) || tops.some((p) => p.end <= h0.start && (textOf(p.xml).trim() !== '' || hasObj(p)))
 
-    //圖名與表名: 段首「圖N」「表N」(標籤與編號間可有空白, 編號後須接空白), 編號須依文件順序自 1 連續
-    let reCap = new RegExp(`^(${escRe(o.labels.fig)}|${escRe(o.labels.tab)})(\\s*)(\\d+)\\s`)
-    let reCapLike = new RegExp(`^(?:${escRe(o.labels.fig)}|${escRe(o.labels.tab)})\\s*\\d+`)
-    let caps = []
-    let capsLike = []
-    for (let p of tops) {
-        let t = textOf(p.xml)
-        let m = t.match(reCap)
-        if (m) {
-            let kind = m[1] === o.labels.fig ? 'fig' : 'tab'
-            let s = m[1].length + m[2].length
-            caps.push({ ...p, kind, num: Number(m[3]), s, e: s + m[3].length, text: t.trim() })
-        }
-        else if (reCapLike.test(t)) {
-            capsLike.push(t.trim())
-        }
-    }
+    //圖名與表名(辨識規則與 keepCaption 共用, 見 docxKeep.mjs), 編號須依文件順序自 1 連續
+    let { caps, capsLike } = findCaptions(tops, o.labels)
     if (capsLike.length > 0) {
-        warns.push(`${capsLike.length} paragraph(s) start with a figure or table label and a number that is not followed by a space, so they are not treated as captions nor listed: ${capsLike.slice(0, 3).map((t) => t.slice(0, 30)).join('; ')}`)
+        warns.push(warnCapsLike(capsLike))
     }
     for (let kind of ['fig', 'tab']) {
         let nums = caps.filter((c) => c.kind === kind).map((c) => c.num)
@@ -424,20 +335,8 @@ function prepDocxToc(u8, opt = {}) {
         idHead[lv] = id
     }
 
-    //各段落之改寫(以段落起點為鍵): fns 依序改寫該段落, pre 為依序插於該段落之前之內容
-    let edits = new Map()
-    let editOf = (p) => {
-        if (!edits.has(p.start)) {
-            edits.set(p.start, { p, fns: [], pre: [] })
-        }
-        return edits.get(p.start)
-    }
-    let addEdit = (p, fn) => {
-        editOf(p).fns.push(fn)
-    }
-    let addPre = (p, s) => {
-        editOf(p).pre.push(s)
-    }
+    //各段落之改寫(以段落起點為鍵): 改寫函數依登錄順序套用, addPre 之內容依序插於該段落之前
+    let { addEdit, addPre, apply } = createEdits()
     for (let c of caps) {
         addEdit(c, (x) => toSeq(x, c.s, c.e, o.labels[c.kind]))
     }
@@ -454,21 +353,9 @@ function prepDocxToc(u8, opt = {}) {
         }
     }
     if (o.keepWithObject) {
-        //相鄰判斷: 兩段落之間只有空白或書籤(中間有表格即不相鄰)
-        let between = (a, b) => doc.slice(a, b).replace(/<w:bookmark(?:Start|End)\b[^>]*\/>/g, '').trim()
-        for (let c of caps) {
-            let i = paras.findIndex((p) => p.start === c.start)
-            let prev = i > 0 ? paras[i - 1] : null
-            let next = i >= 0 && i < paras.length - 1 ? paras[i + 1] : null
-            let tblNext = /^<w:tbl\b/.test(doc.slice(c.end).replace(/^(?:\s|<w:bookmark(?:Start|End)\b[^>]*\/>)+/, ''))
-            let picNext = next && !next.inTbl && between(c.end, next.start) === '' && hasPic(next)
-            let picPrev = prev && !prev.inTbl && between(prev.end, c.start) === '' && hasPic(prev)
-            if (tblNext || picNext) {
-                addEdit(c, addKeepNext)
-            }
-            else if (picPrev) {
-                addEdit(prev, addKeepNext)
-            }
+        //圖名表名與其圖表同頁(相鄰判斷與 keepCaption 共用, 見 docxKeep.mjs 之 planKeepNext)
+        for (let p of planKeepNext(doc, paras, caps)) {
+            addEdit(p, addKeepNext)
         }
     }
 
@@ -564,13 +451,7 @@ function prepDocxToc(u8, opt = {}) {
         let iS = doc.lastIndexOf(sectFinalOld)
         doc = doc.slice(0, iS) + sectFinalNew + doc.slice(iS + sectFinalOld.length)
     }
-    for (let { p, fns, pre } of [...edits.values()].sort((a, b) => b.p.start - a.p.start)) {
-        let x = p.xml
-        for (let fn of fns) {
-            x = fn(x)
-        }
-        doc = doc.slice(0, p.start) + pre.join('') + x + doc.slice(p.end)
-    }
+    doc = apply(doc)
 
     //目錄項目之樣式(依樣式名稱; 行距: 第 1 層 1.5 倍、其餘單行; 章粗體、段前 6 點; 下層每層縮排 2 字並懸掛縮排使換行對齊; 右縮排 2 字; 點線引導至靠右之頁碼)
     //  定位點位置取版心寬(頁寬減左右邊界)
@@ -609,13 +490,8 @@ function prepDocxToc(u8, opt = {}) {
     }
     setStyle('table of figures', 'WMdTocFigs', `${tab}<w:ind w:left="720" w:right="480" w:hanging="720"/>`, `${fonts}<w:noProof/><w:kern w:val="0"/>`, 99)
 
-    //寫出(圖檔已壓縮, 不再壓)
-    let out = {}
-    for (let [k, v] of Object.entries(z)) {
-        let d = k === 'word/document.xml' ? strToU8(doc) : k === 'word/styles.xml' ? strToU8(sty) : v
-        out[k] = /^word\/media\//.test(k) ? [d, { level: 0 }] : d
-    }
-    let u8Out = zipSync(out, { level: 6 })
+    //寫出
+    let u8Out = writeDocx(z, { 'word/document.xml': doc, 'word/styles.xml': sty })
     let info = {
         skip: '',
         cover: hasCover,

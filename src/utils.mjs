@@ -438,31 +438,70 @@ function transErrAsset(msg) {
 
 
 /**
+ * 整理服務端請求之開關或設定物件
+ *
+ * 值為true或字串'true'時回傳true；為物件時回傳移除omit所列鍵後之複本；其餘回傳false。供toc、keepCaption等「true或設定物件」型之請求參數共用。
+ *
+ * @param {*} v 輸入請求之值
+ * @param {Array} [omit=[]] 輸入不由請求端決定而須移除之鍵陣列，預設[]
+ * @returns {Boolean|Object} 回傳false、true或設定物件
+ * @example
+ *
+ * console.log(normReqOpt('true'))
+ * // => true
+ *
+ * console.log(normReqOpt({ a: 1, b: 2 }, ['b']))
+ * // => { a: 1 }
+ *
+ */
+function normReqOpt(v, omit = []) {
+    if (v === true || v === 'true') {
+        return true
+    }
+    if (isobj(v)) {
+        let o = { ...v }
+        for (let k of isarr(omit) ? omit : []) {
+            delete o[k]
+        }
+        return o
+    }
+    return false
+}
+
+
+/**
  * 整理服務端請求之目錄設定
  *
- * 請求之toc為true或字串'true'時回傳true；為物件時回傳移除timeoutMs後之複本：Word更新之逾時屬服務端資源控管，不由請求端決定，否則請求端可用極短逾時反覆中斷Word更新，使經COM啟動之WINWORD行程殘留；其餘回傳false。
+ * 同normReqOpt，另移除timeoutMs：Word更新之逾時屬服務端資源控管，不由請求端決定，否則請求端可用極短逾時反覆中斷Word更新，使經COM啟動之WINWORD行程殘留。
  *
  * @param {*} toc 輸入請求之toc
  * @returns {Boolean|Object} 回傳false、true或設定物件
  * @example
- *
- * console.log(normTocReq('true'))
- * // => true
  *
  * console.log(normTocReq({ maxLevels: 2, timeoutMs: 1 }))
  * // => { maxLevels: 2 }
  *
  */
 function normTocReq(toc) {
-    if (toc === true || toc === 'true') {
-        return true
-    }
-    if (isobj(toc)) {
-        let o = { ...toc }
-        delete o.timeoutMs
-        return o
-    }
-    return false
+    return normReqOpt(toc, ['timeoutMs'])
+}
+
+
+/**
+ * 整理服務端請求之圖名表名同頁設定
+ *
+ * 同normReqOpt，回傳false、true或設定物件之複本。
+ *
+ * @param {*} keepCaption 輸入請求之keepCaption
+ * @returns {Boolean|Object} 回傳false、true或設定物件
+ * @example
+ *
+ * console.log(normKeepReq({ labels: { fig: 'Figure', tab: 'Table' } }))
+ * // => { labels: { fig: 'Figure', tab: 'Table' } }
+ *
+ */
+function normKeepReq(keepCaption) {
+    return normReqOpt(keepCaption)
 }
 
 
@@ -480,5 +519,7 @@ export {
     writeAssets,
     cleanWorkDir,
     transErrAsset,
-    normTocReq
+    normReqOpt,
+    normTocReq,
+    normKeepReq
 }

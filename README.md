@@ -106,3 +106,21 @@ console.log(r.toc)
 - A document without headings is not changed and `toc.skip` tells why. Otherwise any mismatch rejects: `addDocxToc` leaves the docx unchanged, and `cvMdToDocx` deletes the docx it has just converted.
 - The service ignores `toc.timeoutMs` of a request, and `rmApiClient.cvMdTo` rejects without writing the docx when the service does not report the TOC result (a service without TOC support).
 - Word is driven by `cscript` with `updateDocxToc.vbs`. Microsoft has deprecated VBScript, which becomes a feature on demand before its removal from Windows. When an update times out, the `WINWORD` process started through COM may remain and has to be ended manually.
+- The TOC options `keepLines` and `keepWithObject` (default `true`) apply the same rules as `keepCaption` below to the captions, and `keepLines` also to the listed headings.
+
+#### Keep captions with figures and tables:
+> Give `keepCaption: true` (or `{ labels }`) to `cvMdToDocx`, `cvMdTo` or `rmApiClient.cvMdTo` to keep each caption on the same page as its figure or table, with or without a TOC. It only changes paragraph properties after the conversion, so Word is not called again.
+```alias
+let r = await WMd2docx.cvMdToDocx('./test/report.md', './test/report.docx', {
+    keepCaption: true, //or { labels: { fig: 'Figure', tab: 'Table' } }
+})
+console.log(r.keepCaption)
+// => { figs: 3, tabs: 2, keepNext: 5, keepLines: 5, changed: true, warns: [], ms: 210 }
+```
+
+- Captions are recognized as in the TOC, and each caption is kept from splitting across pages (`keepLines`).
+- A caption followed by a table or a figure is kept with it, otherwise a figure right before a caption is kept with the caption (`keepNext`). Empty paragraphs between them are crossed and kept too, but a page break, a section break or a page break before stops it. When figures follow each other directly (figure, caption, figure, caption), the first caption is kept with the next figure, so they are chained.
+- Table captions below their tables are not handled. The paragraphs in or holding text boxes are neither captions nor figures, which is reported in `warns`.
+- The rules of the TOC do not apply: captions numbered out of order, several sections, no headings or an existing TOC are processed as usual. With `toc`, captions are kept even when the TOC is skipped or its `keepWithObject` is `false`.
+- `changed: false` means nothing was needed and the docx is not rewritten. Otherwise the docx is rewritten (not by Word) through a temporary file, and a failure deletes the docx just converted and rejects.
+- `labels` of `keepCaption` and of `toc` are independent. The service passes `keepCaption` on, and `rmApiClient.cvMdTo` rejects without writing the docx when the service does not report the result.

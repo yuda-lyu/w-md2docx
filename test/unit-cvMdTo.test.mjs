@@ -160,4 +160,31 @@ describe('cvMdTo', function() {
         assert.strict.equal(res.size, fs.statSync(fpFixture).size)
     })
 
+    it('產出docx且keepCaption時結果帶回cvMdToDocx之keepCaption(假轉檔器取代w-html2docx)', function() {
+        this.timeout(180000)
+        if (process.platform !== 'win32') {
+            this.skip()
+        }
+        let fpFixture = path.resolve(fdTmp, 'fixture-fig.docx')
+        fs.writeFileSync(fpFixture, buildDocx(parts.cover() + parts.pic() + parts.capFig('圖1 系統架構')))
+        let script = [
+            `let m = await import(process.env.T_MOD)`,
+            `let r = await m.default({ md: '# t', out: 'docx', keepCaption: true, dirWork: process.env.T_WORK })`,
+            `process.stdout.write('@@RESULT@@' + JSON.stringify({ keepCaption: r.keepCaption }))`,
+        ].join('\n')
+        let res = runWithFakeHtml2docx(script, {
+            fpDocx: fpFixture,
+            env: {
+                T_MOD: pathToFileURL(path.resolve('./src/cvMdTo.mjs')).href,
+                T_WORK: path.resolve(fdTmp, 'work-keep'),
+            },
+        })
+        assert.strict.deepEqual([res.keepCaption.figs, res.keepCaption.keepNext, res.keepCaption.keepLines, res.keepCaption.changed], [1, 1, 1, true])
+    })
+
+    it('out=html時keepCaption不適用(無docx), 結果無keepCaption', async function() {
+        let r = await cvMdTo({ md: '# t', out: 'html', keepCaption: true })
+        assert.strict.equal(r.keepCaption, undefined)
+    })
+
 })

@@ -8,6 +8,7 @@ import fsIsFile from 'wsemi/src/fsIsFile.mjs'
 import WMd2html from 'w-md2html/src/WMd2html.mjs'
 import WHtml2docx from 'w-html2docx/src/WHtml2docx.mjs'
 import addDocxToc from './addDocxToc.mjs'
+import { prepDocxKeep } from './docxKeep.mjs'
 import { toErrText, retryBusy, runExclusive } from './utils.mjs'
 
 
@@ -27,8 +28,9 @@ import { toErrText, retryBusy, runExclusive } from './utils.mjs'
  * @param {String} [opt.fpOutHtml=''] 輸入另存中介Html檔位置字串，未給則中介檔產於系統暫存夾並於轉檔後刪除，預設''
  * @param {Object} [opt.optMd2html={}] 輸入傳予w-md2html之設定物件(如imgWidthMax、fontSizeScale等)，預設{}
  * @param {Object} [opt.optHtml2docx={}] 輸入傳予w-html2docx之設定物件(如imgRatioWidthMax、fontFamilies等)，預設{}
+ * @param {Boolean|Object} [opt.keepCaption=false] 輸入是否使圖名、表名與其圖、表同頁(不依附目錄)：轉檔後圖名表名設段落內不分頁，並與其下之表格或圖片、或其上之圖片設為同頁(可越過空段落)，於添加目錄之前執行；true用預設，物件可給{labels}(見docxKeep.mjs之prepDocxKeep，與toc之labels各自獨立)；處理失敗時刪除本次產出之docx並reject，預設false
  * @param {Boolean|Object} [opt.toc=false] 輸入是否添加章節目錄、圖目錄、表目錄並重編頁碼(封面無頁碼、目錄為大寫羅馬數字、正文自1起)，true用預設，物件為addDocxToc之設定(見addDocxToc.mjs)；添加失敗時刪除本次產出之docx並reject，預設false
- * @returns {Promise} 回傳Promise，resolve回傳結果物件{fpOutDocx,sizeDocx,sizeHtml,ms,[fpOutHtml],[toc]}，toc為addDocxToc之結果(文件無標題時僅含skip與ms)，reject回傳錯誤訊息
+ * @returns {Promise} 回傳Promise，resolve回傳結果物件{fpOutDocx,sizeDocx,sizeHtml,ms,[fpOutHtml],[keepCaption],[toc]}，keepCaption為{figs,tabs,keepNext,keepLines,changed,warns,ms}(圖名數、表名數、新增與下段同頁及段落內不分頁之段落數、是否改寫、提示、耗時)，toc為addDocxToc之結果(文件無標題時僅含skip與ms)，reject回傳錯誤訊息
  * @example
  *
  * import cvMdToDocx from 'w-md2docx/src/cvMdToDocx.mjs'
@@ -143,6 +145,51 @@ async function cvMdToDocx(fpInMd, fpOutDocx, opt = {}) {
         }
         let sizeDocx = fs.statSync(fpOutDocx).size
 
+        //圖名表名與其圖表同頁(不依附目錄)
+        //note: 於添加目錄之前獨立執行, 使目錄略過(文件無標題)或目錄之 keepWithObject 為 false 時仍套用; 兩者同開時目錄之同一處理遇已有之設定即原樣回傳
+        let keepCaption = get(opt, 'keepCaption', false)
+        let rKeep = null
+        if (keepCaption === true || isobj(keepCaption)) {
+            let msKeep = Date.now()
+            let errKeep = null
+            try {
+                let r = prepDocxKeep(new Uint8Array(fs.readFileSync(fpOutDocx)), isobj(keepCaption) ? keepCaption : {})
+                if (r.info.changed) {
+                    //以暫存檔改名取代, 寫入中斷時不留半份 docx
+                    let fpTmp = `${fpOutDocx}.${process.pid}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.tmp`
+                    try {
+                        fs.writeFileSync(fpTmp, r.u8)
+                        await retryBusy(() => fs.renameSync(fpTmp, fpOutDocx))
+                    }
+                    finally {
+                        if (fsIsFile(fpTmp)) {
+                            try {
+                                fs.unlinkSync(fpTmp)
+                            }
+                            catch (err) {
+                                //殘檔被鎖, 略過
+                            }
+                        }
+                    }
+                }
+                rKeep = { ...r.info, ms: Date.now() - msKeep }
+            }
+            catch (err) {
+                errKeep = toErrText(err)
+            }
+            if (errKeep !== null) {
+                //why: 已產出之 docx 缺所要求之同頁設定, 留著會被以檔案存在判斷成敗之呼叫端當成成功, 故刪除後才 reject
+                try {
+                    fs.unlinkSync(fpOutDocx)
+                }
+                catch (err) {
+                    //被鎖則略過, 仍以 reject 回報失敗
+                }
+                return Promise.reject(`Failed to keep the captions with their figures and tables: ${errKeep}`)
+            }
+            sizeDocx = fs.statSync(fpOutDocx).size
+        }
+
         //添加目錄並重編頁碼
         //note: 須於轉檔佇列之外呼叫, addDocxToc 內部之 Word 更新另行排隊; 若於佇列內呼叫, 兩者互等而永不完成
         let toc = get(opt, 'toc', false)
@@ -174,6 +221,9 @@ async function cvMdToDocx(fpInMd, fpOutDocx, opt = {}) {
         }
         if (bKeepHtml) {
             rt.fpOutHtml = fpOutHtml
+        }
+        if (rKeep !== null) {
+            rt.keepCaption = rKeep
         }
         if (rToc !== null) {
             rt.toc = rToc
