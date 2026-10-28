@@ -3,7 +3,6 @@ import path from 'path'
 import get from 'lodash-es/get.js'
 import isstr from 'wsemi/src/isstr.mjs'
 import isestr from 'wsemi/src/isestr.mjs'
-import isbol from 'wsemi/src/isbol.mjs'
 import isobj from 'wsemi/src/isobj.mjs'
 import ispnum from 'wsemi/src/ispnum.mjs'
 import ispint from 'wsemi/src/ispint.mjs'
@@ -195,7 +194,6 @@ function readAssets(md, dirMd) {
  * @param {String} [opt.token=''] 輸入x-api-token字串，未給則取環境變數WMD2DOCX_TOKEN，預設''
  * @param {Object} [opt.optMd2html] 輸入傳予w-md2html之設定物件
  * @param {Object} [opt.optHtml2docx] 輸入傳予w-html2docx之設定物件，其imgHeightReserveLines未給時由服務端預設4(行格線模板之圖片下方預留格數，給null停用，見cvMdToDocx)
- * @param {Boolean} [opt.allowMissingAssets=false] 輸入是否容許md引用之資產檔不存在布林值，預設false
  * @param {Boolean|Object} [opt.keepCaption=false] 輸入是否於服務端使圖名、表名與其圖、表同頁(true或{labels})；有產出docx而服務端回應未帶其結果時(服務端版本不支援)reject且不寫檔，預設false
  * @param {Boolean|Object} [opt.toc=false] 輸入是否於服務端添加章節目錄、圖目錄、表目錄並重編頁碼(true或addDocxToc之設定物件，其timeoutMs由服務端決定而不採用)；有產出docx而服務端回應未帶目錄結果時(服務端版本不支援)reject且不寫檔，預設false
  * @param {Number} [opt.timeoutMs=600000] 輸入逾時毫秒數，轉檔含Word啟動故預設10分鐘，預設600000
@@ -249,19 +247,13 @@ async function cvMdTo(opt = {}) {
         out = 'html'
     }
 
-    //allowMissingAssets
-    let allowMissingAssets = get(opt, 'allowMissingAssets', false)
-    if (!isbol(allowMissingAssets)) {
-        allowMissingAssets = false
-    }
-
     //md 與資產
     let md = fs.readFileSync(fpInMd, 'utf8')
     let dirMd = path.dirname(fpInMd)
     let { assets, missing } = readAssets(md, dirMd)
-    if (missing.length > 0 && !allowMissingAssets) {
-        //why: 缺圖不擋下會靜默產出破圖之 docx, 交付後才被發現
-        return Promise.reject(`${missing.length} asset file(s) referenced in md do not exist: ${missing.join(', ')}. Set allowMissingAssets:true to skip this check`)
+    if (missing.length > 0) {
+        //why: 轉檔端(w-md2html)對缺圖一律 reject, 本機先擋下可省去夾帶其餘資產之上傳
+        return Promise.reject(`${missing.length} asset file(s) referenced in md do not exist: ${missing.join(', ')}`)
     }
 
     //name (輸出檔名主體, 未指定則取 md 檔名)

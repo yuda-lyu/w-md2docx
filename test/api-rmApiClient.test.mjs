@@ -207,14 +207,12 @@ describe('rmApiClient', function() {
             await assert.rejects(cvMdTo({ host, port, token, fpInMd: './test/report.md', fpOutHtml, fpInTemp: './nope.docx' }), (e) => /^fpInTemp\[.+nope\.docx\] does not exist$/.test(e))
         })
 
-        it('cvMdTo 資產缺漏預設reject, allowMissingAssets=true放行', async function() {
+        it('cvMdTo 資產缺漏於送出前即reject(轉檔端一律拒絕缺圖, 無放行選項)', async function() {
             let fpMd = path.resolve(fdTmp, 'missing.md')
             fs.writeFileSync(fpMd, '# m\n\n![x](nope.png)\n![y](nope2.png)\n', 'utf8')
-            await assert.rejects(cvMdTo({ host, port, token, fpInMd: fpMd, fpOutHtml }), (e) => e === '2 asset file(s) referenced in md do not exist: nope.png, nope2.png. Set allowMissingAssets:true to skip this check')
-            let r = await cvMdTo({ host, port, token, fpInMd: fpMd, fpOutHtml, allowMissingAssets: true })
-            assert.strict.equal(r.nAssets, 0)
-            assert.strict.equal(r.html.size > 0, true)
+            await assert.rejects(cvMdTo({ host, port, token, fpInMd: fpMd, fpOutHtml }), (e) => e === '2 asset file(s) referenced in md do not exist: nope.png, nope2.png')
         })
+
 
         it('cvMdTo fpInTemp 以base64夾帶模板(template=request)', async function() {
             let r = await cvMdTo({ host, port, token, fpInMd: './test/report.md', fpOutHtml, fpInTemp: './src/templates/temp_tpc.docx' })

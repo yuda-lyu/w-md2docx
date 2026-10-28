@@ -64,6 +64,8 @@ function isInputError(msg) {
  *
  * 請求之keepCaption(true或{labels})轉傳cvMdTo使圖名表名與其圖表同頁；請求之toc(true或addDocxToc之設定物件)轉傳cvMdTo以添加目錄，其timeoutMs不採用(Word更新之逾時由服務端決定)；兩者之結果隨回應傳回。
  *
+ * 回應之docx與html以base64置於單一JSON字串，受字串長度上限限制：兩者base64字元數合計超過上限(約401,866,734位元組之檔案)時回500與指出原因之訊息，服務不中止；圖片本身不受此限(docx階段以圖檔路徑引用，不內嵌base64)。請求大小上限opt.maxMb則限制夾帶之資產與模板。GET /api/health之exeFound與exePath為轉檔器是否已備妥於w-html2docx之快取(診斷用)。
+ *
  * @param {Object} [opt={}] 輸入設定物件，預設{}
  * @param {Integer} [opt.port=22000] 輸入服務埠號整數，給0則由系統自動配置(實際埠號見回傳之server.info.port)，預設22000
  * @param {String} [opt.host='0.0.0.0'] 輸入監聽位址字串，預設'0.0.0.0'
@@ -206,13 +208,13 @@ async function rmApiServer(opt = {}) {
 
     //getState: 取服務環境狀態
     let getState = async () => {
-        let rd = checkDocxReady()
+        let rd = await checkDocxReady()
         let nWinword = await getWinwordCount()
         return {
             platform: rd.platform,
             node: process.version,
             cwd: rd.cwd,
-            exeFound: rd.exeFound, //轉檔器目前是否已存在(診斷用), false 時於首次轉檔由 w-html2docx 自動下載
+            exeFound: rd.exeFound, //轉檔器是否已備妥於 w-html2docx 之快取(診斷用, 只看快取不下載), false 時於首次轉檔由 w-html2docx 取得
             exePath: rd.exePath,
             docxReady: rd.ready, //僅代表環境具備條件, 轉檔器可否下載與 Word 可用性須以 /api/selftest 實轉驗證
             templateDefault: getFpTemplateDef(),

@@ -31,9 +31,10 @@ function crc32(buf) {
 }
 
 
-//genTallPng, 產生單色RGB之PNG, 預設1200×2800px, 模擬整頁高之長圖(網站設計稿、長流程圖)
-function genTallPng(w = 1200, h = 2800) {
-    let row = Buffer.alloc(1 + w * 3, 220)
+//genTallPng, 產生單色RGB之PNG, 預設1200×2800px, 模擬整頁高之長圖(網站設計稿、長流程圖); gray為單色灰階值(0~255), 內容不同之圖給不同值;
+//dpi為正數時寫入pHYs區塊(每英寸像素數), 0(預設)不寫入——無pHYs之PNG, Word以96 dpi顯示(每像素0.75點)
+function genTallPng(w = 1200, h = 2800, gray = 220, dpi = 0) {
+    let row = Buffer.alloc(1 + w * 3, gray)
     row[0] = 0 //filter none
     let raw = Buffer.concat(Array.from({ length: h }, () => row))
     let chunk = (type, data) => {
@@ -50,7 +51,15 @@ function genTallPng(w = 1200, h = 2800) {
     ihdr[8] = 8 //bit depth
     ihdr[9] = 2 //RGB
     let sig = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
-    return Buffer.concat([sig, chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))])
+    let phys = Buffer.alloc(0)
+    if (dpi > 0) {
+        let d = Buffer.alloc(9)
+        d.writeUInt32BE(Math.round(dpi / 0.0254), 0) //每公尺像素數
+        d.writeUInt32BE(Math.round(dpi / 0.0254), 4)
+        d[8] = 1 //單位: 公尺
+        phys = chunk('pHYs', d)
+    }
+    return Buffer.concat([sig, chunk('IHDR', ihdr), phys, chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))])
 }
 
 

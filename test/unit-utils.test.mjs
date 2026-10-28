@@ -1,5 +1,6 @@
 import fs from 'fs'
 import path from 'path'
+import { constants } from 'buffer'
 import assert from 'assert'
 import {
     mimeHtml,
@@ -8,8 +9,9 @@ import {
     retryBusy,
     runExclusive,
     getQueueSize,
-    getFpExe,
     checkDocxReady,
+    assertReadable,
+    assertB64Fit,
     toSafeName,
     resolveAssetPaths,
     writeAssets,
@@ -167,42 +169,162 @@ describe('utils', function() {
 
     })
 
-    describe('getFpExe/checkDocxReady', function() {
+    describe('checkDocxReady', function() {
 
-        it('getFpExe回傳字串, 存在時為實體檔', function() {
-            let fp = getFpExe()
-            assert.strict.equal(typeof fp, 'string')
-            if (fp !== '') {
-                assert.strict.equal(fs.existsSync(fp), true)
-                assert.strict.equal(/htmlToDocx\.exe$/.test(fp), true)
+        //manifest: w-html2docx 的外部執行檔清單, 快取位置為 <W_BIN_CACHE>/w-html2docx/<sha256>/htmlToDocx.exe
+        let manifest = JSON.parse(fs.readFileSync('./node_modules/w-html2docx/bin/manifest.json', 'utf8'))
+        let sha = manifest.files[0].sha256
+        let fnExe = manifest.files[0].name
+
+        //withEnv: 暫時設定環境變數(值 undefined 為刪除), 結束後還原
+        let withEnv = async (kv, fun) => {
+            let ori = {}
+            for (let k of Object.keys(kv)) {
+                ori[k] = process.env[k]
+                if (kv[k] === undefined) {
+                    delete process.env[k]
+                }
+                else {
+                    process.env[k] = kv[k]
+                }
             }
-        })
+            try {
+                return await fun()
+            }
+            finally {
+                for (let k of Object.keys(ori)) {
+                    if (ori[k] === undefined) {
+                        delete process.env[k]
+                    }
+                    else {
+                        process.env[k] = ori[k]
+                    }
+                }
+            }
+        }
 
-        it('checkDocxReady欄位與一致性', function() {
-            let r = checkDocxReady()
+        //fpExeReal: 本機預設快取內已備妥之轉檔器(實跑過 Word 轉檔或 ensureBins 者才有), 無則為空字串
+        let fpExeReal = path.resolve('./node_modules/w-html2docx/bin-cache', sha, fnExe)
+        if (!fs.existsSync(fpExeReal)) {
+            fpExeReal = ''
+        }
+
+        it('欄位與一致性: exePath與exeFound同進退, ready僅以作業系統為Windows判定', async function() {
+            let r = await checkDocxReady()
             assert.strict.equal(r.platform, process.platform)
             assert.strict.equal(r.isWindows, process.platform === 'win32')
             assert.strict.equal(r.cwd, path.resolve())
-            assert.strict.equal(r.exePath, getFpExe())
             assert.strict.equal(r.exeFound, r.exePath !== '')
-            assert.strict.equal(r.ready, r.isWindows) //ready不以轉檔器存在為條件(缺檔於首次轉檔時由w-html2docx自動下載)
+            if (r.exeFound) {
+                assert.strict.equal(fs.existsSync(r.exePath), true)
+                assert.strict.equal(path.basename(r.exePath), fnExe)
+            }
+            assert.strict.equal(r.ready, r.isWindows) //ready不以轉檔器存在為條件(缺檔於首次轉檔時由w-html2docx取得)
         })
 
-        it('轉檔器缺檔時exeFound為false但ready不因此為false', function() {
-            let fdCwd = path.resolve(fdTmp, 'noexe') //其下src/與node_modules/w-html2docx/src/皆無htmlToDocx.exe
-            fs.mkdirSync(fdCwd, { recursive: true })
-            let cwdOri = process.cwd()
-            let r = null
-            process.chdir(fdCwd)
-            try {
-                r = checkDocxReady()
-            }
-            finally {
-                process.chdir(cwdOri)
-            }
-            assert.strict.equal(r.exePath, '')
+        it('快取空: exeFound為false且exePath為空字串, 但ready不因此為false; 不下載(快取夾仍空)', async function() {
+            let fdCache = path.resolve(fdTmp, 'cache-empty')
+            fs.mkdirSync(fdCache, { recursive: true })
+            let r = await withEnv({ W_BIN_CACHE: fdCache, W_BIN_OFFLINE: undefined, W_BIN_MIRROR: undefined }, () => checkDocxReady())
             assert.strict.equal(r.exeFound, false)
+            assert.strict.equal(r.exePath, '')
             assert.strict.equal(r.ready, process.platform === 'win32')
+            assert.strict.deepEqual(fs.readdirSync(fdCache), [])
+        })
+
+        it('快取內有檔但內容與清單之SHA-256不符: 視為未備妥(命中亦校驗)', async function() {
+            let fdCache = path.resolve(fdTmp, 'cache-corrupt')
+            fs.mkdirSync(path.resolve(fdCache, 'w-html2docx', sha), { recursive: true })
+            fs.writeFileSync(path.resolve(fdCache, 'w-html2docx', sha, fnExe), 'not an executable')
+            let r = await withEnv({ W_BIN_CACHE: fdCache, W_BIN_OFFLINE: undefined, W_BIN_MIRROR: undefined }, () => checkDocxReady())
+            assert.strict.equal(r.exeFound, false)
+            assert.strict.equal(r.exePath, '')
+        })
+
+        it('快取內有校驗相符之轉檔器: exeFound為true且exePath為該快取內之檔', async function() {
+            if (fpExeReal === '') {
+                console.log('[unit-utils] htmlToDocx.exe is not in the default cache of w-html2docx on this machine, skip')
+                this.skip()
+            }
+            let fdCache = path.resolve(fdTmp, 'cache-hit')
+            let fpHit = path.resolve(fdCache, 'w-html2docx', sha, fnExe)
+            fs.mkdirSync(path.dirname(fpHit), { recursive: true })
+            fs.copyFileSync(fpExeReal, fpHit)
+            let r = await withEnv({ W_BIN_CACHE: fdCache, W_BIN_OFFLINE: undefined, W_BIN_MIRROR: undefined }, () => checkDocxReady())
+            assert.strict.equal(r.exeFound, true)
+            assert.strict.equal(r.exePath, fpHit)
+        })
+
+        it('只看快取: 環境變數之鏡像內有檔也不取用(不複製入快取)', async function() {
+            if (fpExeReal === '') {
+                console.log('[unit-utils] htmlToDocx.exe is not in the default cache of w-html2docx on this machine, skip')
+                this.skip()
+            }
+            let fdCache = path.resolve(fdTmp, 'cache-mirror')
+            let fdMirror = path.resolve(fdTmp, 'mirror')
+            let fpMirror = path.resolve(fdMirror, 'w-html2docx', sha, fnExe) //鏡像結構: <鏡像>/<pkg>/<sha256>/<name>
+            fs.mkdirSync(fdCache, { recursive: true })
+            fs.mkdirSync(path.dirname(fpMirror), { recursive: true })
+            fs.copyFileSync(fpExeReal, fpMirror)
+            let r = await withEnv({ W_BIN_CACHE: fdCache, W_BIN_MIRROR: fdMirror, W_BIN_OFFLINE: undefined }, () => checkDocxReady())
+            assert.strict.equal(r.exeFound, false)
+            assert.strict.equal(r.exePath, '')
+            assert.strict.deepEqual(fs.readdirSync(fdCache), [])
+        })
+
+    })
+
+    describe('assertReadable', function() {
+
+        it('單檔大小以fs.readFileSync上限(2 GiB - 1位元組)為界: 以內不拋錯, 超過則於讀檔前拋出指出原因之錯誤', function() {
+            let fp = path.resolve(fdTmp, 'sparse.docx')
+            let mk = (n) => {
+                let h = fs.openSync(fp, 'w')
+                fs.ftruncateSync(h, n) //稀疏檔, 不實寫
+                fs.closeSync(h)
+            }
+            mk(0)
+            assertReadable(fp, 'docx')
+            mk(2 ** 31 - 1)
+            assertReadable(fp, 'docx')
+            mk(2 ** 31)
+            assert.throws(() => assertReadable(fp, 'docx'), (e) => {
+                assert.strict.equal(e instanceof Error, true)
+                assert.strict.equal(e.message, 'docx is too large to be read into memory in one piece (2147483648 bytes, over the limit of 2147483647 bytes = 2 GiB)')
+                return true
+            })
+            fs.unlinkSync(fp)
+        })
+
+    })
+
+    describe('assertB64Fit', function() {
+
+        //maxChars: 回傳內容以 base64 置於單一 JSON 字串, 受 V8 字串長度上限限制, 另預留 1 MiB 給 JSON 外殼與其他欄位
+        let maxChars = constants.MAX_STRING_LENGTH - 1024 * 1024
+        let maxBytes = Math.floor(maxChars / 4) * 3 //base64 每 3 位元組成 4 字元
+
+        it('各檔 base64 字元數(含進位)合計以上限為界: 以內不拋錯', function() {
+            assertB64Fit({ docx: 0, html: 0 })
+            assertB64Fit({ docx: maxBytes })
+            assertB64Fit({ docx: maxBytes - 3, html: 3 })
+        })
+
+        it('超過上限時於轉 base64 前拋出指出原因之錯誤(列出各檔位元組數與上限)', function() {
+            assert.throws(() => assertB64Fit({ docx: maxBytes + 1 }), (e) => {
+                assert.strict.equal(e instanceof Error, true)
+                assert.strict.equal(e.message, `the result is too large to be returned as base64 in one JSON string: docx ${maxBytes + 1} bytes (${4 * Math.ceil((maxBytes + 1) / 3)} chars of base64 in total), over the limit of ${maxChars} chars (about ${maxBytes} bytes of files in total)`)
+                return true
+            })
+        })
+
+        it('docx與html合計超過上限(各自未超過)亦拋錯, 訊息列出兩者', function() {
+            let half = Math.floor(maxBytes / 2)
+            assertB64Fit({ docx: half })
+            assert.throws(() => assertB64Fit({ docx: half + 3, html: half + 3 }), (e) => {
+                assert.strict.equal(e.message.startsWith(`the result is too large to be returned as base64 in one JSON string: docx ${half + 3} bytes, html ${half + 3} bytes (`), true, e.message)
+                return true
+            })
         })
 
     })
@@ -366,19 +488,39 @@ describe('utils', function() {
 
     describe('transErrAsset', function() {
 
-        it('資產缺漏訊息轉為可行動之英文提示並隱去工作夾路徑', function() {
-            let msg = 'fp[C:/tmp/w-md2docx/job_123_abc/pics/圖.png] does not exist'
+        //w-md2html(≥1.1.12)缺圖之 reject 訊息: `N image file(s) do not exist:` 後每行一個絕對路徑
+        it('缺1個圖: 轉為可行動之英文提示並隱去工作夾路徑(正斜線路徑)', function() {
+            let msg = 'Failed to convert md to html: 1 image file(s) do not exist:\nC:/tmp/w-md2docx/job_123_abc/pics/圖.png'
             assert.strict.equal(transErrAsset(msg), 'Failed to convert md to html: the referenced file (pics/圖.png) does not exist, please make sure it is included in assets')
         })
 
-        it('反斜線路徑亦可解析', function() {
-            let msg = 'Failed to convert md to html: fp[C:\\tmp\\job_1_a\\pics\\a.png] does not exist'
+        it('缺1個圖: 反斜線路徑與無前綴之訊息亦可解析', function() {
+            let msg = '1 image file(s) do not exist:\r\nC:\\tmp\\job_1_a\\pics\\a.png'
             assert.strict.equal(transErrAsset(msg), 'Failed to convert md to html: the referenced file (pics/a.png) does not exist, please make sure it is included in assets')
+        })
+
+        it('缺多個圖: 全數列出(依訊息順序), 複數形', function() {
+            let msg = 'Failed to convert md to html: 2 image file(s) do not exist:\nC:\\tmp\\job_1_a\\pics\\a.png\nC:\\tmp\\job_1_a\\b.png\n'
+            assert.strict.equal(transErrAsset(msg), 'Failed to convert md to html: the referenced files (pics/a.png, b.png) do not exist, please make sure they are included in assets')
+        })
+
+        it('缺圖之路徑不全在工作夾內(如md內寫絕對路徑)則原樣回傳', function() {
+            let msg = 'Failed to convert md to html: 2 image file(s) do not exist:\nC:\\tmp\\job_1_a\\a.png\nD:\\other\\b.png'
+            assert.strict.equal(transErrAsset(msg), msg)
+            let msg2 = 'Failed to convert md to html: 1 image file(s) do not exist:\nD:\\other\\b.png'
+            assert.strict.equal(transErrAsset(msg2), msg2)
+        })
+
+        it('Word解析不到之圖(unresolved linked picture): 來源在工作夾內者隱去工作夾路徑, 網址與工作夾外之路徑原樣', function() {
+            let msg = 'Failed to convert html to docx: code[1]:\r\nunresolved linked picture: C:\\tmp\\w-md2docx\\job_1_a\\pics\\圖 a.png\r\nunresolved linked picture: http://127.0.0.1:1/job_9/x.png\r\nunresolved linked picture: D:\\other\\b.png\r\nunresolved linked picture: C:/tmp/job_2_b/c.png\r\nerror: LinkedPictureError: 4 linked picture(s) can not be embedded'
+            let exp = 'Failed to convert html to docx: code[1]:\r\nunresolved linked picture: pics/圖 a.png\r\nunresolved linked picture: http://127.0.0.1:1/job_9/x.png\r\nunresolved linked picture: D:\\other\\b.png\r\nunresolved linked picture: c.png\r\nerror: LinkedPictureError: 4 linked picture(s) can not be embedded'
+            assert.strict.equal(transErrAsset(msg), exp)
         })
 
         it('非資產缺漏訊息原樣回傳', function() {
             assert.strict.equal(transErrAsset('other error'), 'other error')
-            assert.strict.equal(transErrAsset('fp[x] does not exist'), 'fp[x] does not exist') //無 job_ 片段
+            assert.strict.equal(transErrAsset('fpInMd[x] does not exist'), 'fpInMd[x] does not exist')
+            assert.strict.equal(transErrAsset('Failed to convert md to html: images are too large to embed as base64 (imgConvertToBase64=true): 3 image file(s)'), 'Failed to convert md to html: images are too large to embed as base64 (imgConvertToBase64=true): 3 image file(s)')
         })
 
         it('非字串轉為文字', function() {

@@ -65,6 +65,25 @@ describe('addDocxToc', function() {
         await assert.rejects(addDocxToc('./test/report.md'), (e) => /^Failed to prepare the TOC: /.test(e))
     })
 
+    it('docx超過2 GiB(fs.readFileSync上限): 讀檔前以指出原因之訊息reject, 原檔不變且不啟動Word(不留暫存檔)', async function() {
+        let fp = path.resolve(fdTmp, 'big.docx')
+        let h = fs.openSync(fp, 'w')
+        fs.ftruncateSync(h, 2 ** 31) //稀疏檔, 不實寫
+        fs.closeSync(h)
+        let n0 = nTmpToc()
+        try {
+            await assert.rejects(addDocxToc(fp), (e) => {
+                assert.strict.equal(e, 'Failed to prepare the TOC: docx is too large to be read into memory in one piece (2147483648 bytes, over the limit of 2147483647 bytes = 2 GiB)')
+                return true
+            })
+            assert.strict.equal(fs.statSync(fp).size, 2 ** 31)
+            assert.strict.equal(nTmpToc(), n0)
+        }
+        finally {
+            fs.unlinkSync(fp)
+        }
+    })
+
     it('文件無標題時不處理: 僅回傳skip與ms且原檔不變', async function() {
         let fp = path.resolve(fdTmp, 'nohead.docx')
         fs.writeFileSync(fp, buildDocx(cover() + body('沒有標題')))

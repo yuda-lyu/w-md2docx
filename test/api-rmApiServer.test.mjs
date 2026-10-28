@@ -87,8 +87,16 @@ describe('rmApiServer', function() {
         assert.strict.equal(typeof r.winwordProcesses, 'number')
         assert.strict.equal(r.maxBytes, 256 * 1024 * 1024)
         assert.strict.equal(typeof r.docxReady, 'boolean')
+        assert.strict.equal(r.docxReady, process.platform === 'win32')
+        assert.strict.equal(typeof r.exeFound, 'boolean') //轉檔器是否已在w-html2docx之快取(診斷用, 不下載)
+        assert.strict.equal(r.exeFound, r.exePath !== '')
+        if (r.exeFound) {
+            assert.strict.equal(path.basename(r.exePath), 'htmlToDocx.exe')
+            assert.strict.equal(fs.existsSync(r.exePath), true)
+        }
         let st = await srv.getState()
         assert.strict.equal(st.docxReady, r.docxReady)
+        assert.strict.equal(st.exeFound, r.exeFound)
     })
 
     it('POST /api/convert out=html: 回傳結構與資產內嵌', async function() {
@@ -251,6 +259,37 @@ describe('rmApiServer', function() {
         assert.strict.equal(res.hasDocx, true)
         assert.strict.equal(res.toc.skip, 'no heading (paragraph with an outline level) is found, the TOC is not added')
         assert.strict.deepEqual([res.keepCaption.figs, res.keepCaption.keepNext, res.keepCaption.changed], [1, 1, true]) //字串'true'視同true
+    })
+
+    it('POST /api/convert 回傳內容超過可置於JSON字串之base64上限: 回500與指出原因之訊息, 服務行程不中止且之後的請求照常處理(子程序以假轉檔器產出稀疏檔)', function() {
+        this.timeout(180000)
+        if (process.platform !== 'win32') {
+            this.skip()
+        }
+        let portBig = 8206 //固定埠, 與本檔 8201～8205 錯開
+        let script = [
+            `let m = await import(process.env.T_MOD)`,
+            `let s = await m.default({ port: ${portBig}, host: '127.0.0.1', dirWork: process.env.T_WORK })`,
+            `let post = (body) => fetch('http://127.0.0.1:${portBig}/api/convert', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })`,
+            `let res = await post({ md: '# t', out: 'docx' })`,
+            `let j = await res.json()`,
+            `let res2 = await post({ md: '# t', out: 'html' })`,
+            `let j2 = await res2.json()`,
+            `await s.stop()`,
+            `process.stdout.write('@@RESULT@@' + JSON.stringify({ status: res.status, j, status2: res2.status, success2: j2.success }))`,
+        ].join('\n')
+        let res = runWithFakeHtml2docx(script, {
+            size: 410000000, //稀疏檔(約410 MB), 不實寫
+            env: {
+                T_MOD: pathToFileURL(path.resolve('./src/rmApiServer.mjs')).href,
+                T_WORK: path.resolve(fdTmp, 'work-big'),
+            },
+        })
+        assert.strict.equal(res.status, 500)
+        assert.strict.deepEqual(res.j, { success: false, error: 'the result is too large to be returned as base64 in one JSON string: docx 410000000 bytes (546666668 chars of base64 in total), over the limit of 535822312 chars (about 401866734 bytes of files in total)' })
+        assert.strict.equal(res.status2, 200) //行程仍存活, out=html 不經 docx 照常回傳
+        assert.strict.equal(res.success2, true)
+        assert.strict.equal(fs.readdirSync(path.resolve(fdTmp, 'work-big')).filter((v) => v.startsWith('job_')).length, 0)
     })
 
     it('POST /api/convert optHtml2docx: 未給imgHeightReserveLines時以4傳予w-html2docx, 給null(停用)或數字原樣傳下(子程序以假轉檔器記錄所收設定)', function() {

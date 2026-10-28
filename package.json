@@ -1,12 +1,12 @@
 {
   "name": "w-md2docx",
-  "version": "1.0.18",
+  "version": "1.0.19",
   "main": "dist/w-md2docx.umd.js",
   "dependencies": {
     "@hapi/hapi": "^21.4.10",
     "fflate": "^0.8.3",
-    "w-html2docx": "^1.0.38",
-    "w-md2html": "^1.1.11",
+    "w-html2docx": "^1.0.40",
+    "w-md2html": "^1.1.12",
     "wsemi": "^1.9.25"
   },
   "devDependencies": {

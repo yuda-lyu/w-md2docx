@@ -10,7 +10,7 @@ import cint from 'wsemi/src/cint.mjs'
 import fsIsFile from 'wsemi/src/fsIsFile.mjs'
 import execProcess from 'wsemi/src/execProcess.mjs'
 import { prepDocxToc, checkDocxToc } from './docxToc.mjs'
-import { toErrText, retryBusy, runExclusive } from './utils.mjs'
+import { toErrText, retryBusy, runExclusive, assertReadable } from './utils.mjs'
 
 
 //fdSelf (場景B: 套件自帶之 updateDocxToc.vbs 隨模組所在資料夾定位, 不依工作目錄)
@@ -84,7 +84,7 @@ async function runWord(fpVbs, fpIn, fpOut, timeout) {
  *
  * Word更新以cscript執行updateDocxToc.vbs(VBScript)：微軟已公告VBScript將轉為選用功能並於日後移除，屆時須另行啟用或改以其他方式調用Word。逾時被終止時，經COM啟動之WINWORD行程可能殘留，須人工確認後結束。
  *
- * 文件無標題段落時不處理並於回傳之skip說明原因；前提不符或核對不符時reject，原檔不變。
+ * 文件無標題段落時不處理並於回傳之skip說明原因；前提不符或核對不符時reject，原檔不變。docx須整份讀入記憶體，單檔上限為2 GiB-1位元組(fs.readFileSync)，超過時於讀檔前以指出原因之訊息reject，原檔不變。
  *
  * @param {String} fpDocx 輸入docx檔位置字串，處理成功時就地覆寫
  * @param {Object} [opt={}] 輸入設定物件，預設{}
@@ -145,6 +145,7 @@ async function addDocxToc(fpDocx, opt = {}) {
     //準備內容(前提不符即拋錯, 原檔不變)
     let prep = null
     try {
+        assertReadable(fpDocx, 'docx') //整份讀入記憶體, 超過 fs.readFileSync 上限時於讀檔前以明確訊息拋出
         prep = prepDocxToc(new Uint8Array(fs.readFileSync(fpDocx)), opt)
     }
     catch (err) {
@@ -165,6 +166,7 @@ async function addDocxToc(fpDocx, opt = {}) {
         if (!fsIsFile(fpTmpOut) || fs.statSync(fpTmpOut).size === 0) {
             return Promise.reject('Word reported success but the updated docx was not generated')
         }
+        assertReadable(fpTmpOut, 'docx updated by Word')
         let chk = checkDocxToc(new Uint8Array(fs.readFileSync(fpTmpOut)), info)
         if (!chk.ok) {
             return Promise.reject(`TOC check failed (${chk.errs.length}): ${chk.errs.slice(0, 5).join('; ')}`)
