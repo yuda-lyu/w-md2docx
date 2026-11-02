@@ -86,7 +86,7 @@ console.log(r)
 ```
 
 #### Tables of contents:
-> Give `toc: true` (or a settings object) to `cvMdToDocx`, `cvMdTo` or `rmApiClient.cvMdTo`, or call `addDocxToc` on a docx just converted. Word computes the entries and page numbers, so it also requires `Windows` with `Microsoft Word`, and the conversions and the TOC updates share one queue.
+> Give `toc: true` (or a settings object) to `cvMdToDocx`, `cvMdTo` or `rmApiClient.cvMdTo`, or call `addDocxToc` on a docx just converted. Word computes the entries and page numbers, so it also requires `Windows` with `Microsoft Word` and `powershell.exe`, and the conversions and the TOC updates share one queue.
 ```alias
 import WMd2docx from 'w-md2docx/src/WMd2docx.mjs'
 
@@ -105,8 +105,8 @@ console.log(r.toc)
 - The entries use the font of the first heading. `replaceTocStyles: false` keeps the `toc N` and `table of figures` styles of the template.
 - A document without headings is not changed and `toc.skip` tells why. Otherwise any mismatch rejects: `addDocxToc` leaves the docx unchanged, and `cvMdToDocx` deletes the docx it has just converted.
 - The service ignores `toc.timeoutMs` of a request, and `rmApiClient.cvMdTo` rejects without writing the docx when the service does not report the TOC result (a service without TOC support).
-- Word is driven by `cscript` with `updateDocxToc.vbs`. Microsoft has deprecated VBScript, which becomes a feature on demand before its removal from Windows. When an update times out, the `WINWORD` process started through COM may remain and has to be ended manually.
-- Antivirus software may flag `updateDocxToc.vbs` and quarantine it as soon as any process reads it: Microsoft Defender reports `Trojan:Script/ObfusScript.A!ml`, a false positive (the script only drives Word through COM to update the fields and save the docx). The TOC then rejects with `updateDocxToc.vbs is not found in [...]` followed by `it may have been quarantined by antivirus software (e.g. Microsoft Defender reports Trojan:Script/ObfusScript.A!ml, a false positive), restore and allow it from Windows Security > Virus & threat protection > Protection history`, and `cvMdToDocx` deletes the docx it has just converted. Restore and allow the file there, and do not read, copy or hash it with other tools before that, since each access is quarantined again.
+- Word is driven through COM by Windows PowerShell 5.1 (`powershell.exe`, built into Windows), so the TOC needs `Windows`, `Microsoft Word` and `powershell.exe`. The script is passed on the command line (`-EncodedCommand`) and is never written to a file, because a stand-alone script file may be quarantined by antivirus software as a false positive. The paths of the docx are passed through the environment variables `W_MD2DOCX_SRC` and `W_MD2DOCX_DST`, which are set only while Word is being driven. A machine that blocks PowerShell scripts through Constrained Language Mode (AppLocker, WDAC) can not drive Word this way.
+- When an update times out, `powershell.exe` is ended with its child processes, but the `WINWORD` process started through COM is not one of them and may remain, so it has to be ended manually.
 - The TOC options `keepLines` and `keepWithObject` (default `true`) apply the same rules as `keepCaption` below to the captions, and `keepLines` also to the listed headings.
 
 #### Keep captions with figures and tables:

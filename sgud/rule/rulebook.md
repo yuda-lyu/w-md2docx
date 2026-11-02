@@ -56,15 +56,19 @@
 - 站點:`src/cvMdToDocx.mjs:144-151`.
 - 測試:`test/unit-cvMdToDocx.test.mjs`(假轉檔器逐案表;真 w-html2docx 於離線且快取空夾之子程序;錯 cwd 之預設模板).
 
-### R-AV-1 找不到 `updateDocxToc.vbs` 之拒絕訊息須指出可能被防毒軟體隔離(Gitea #53)
+### R-AV-1 不以獨立腳本檔驅動 Word(Gitea #53,2026-11-02 由「隔離訊息」改為「不落地」)
 
-- 規則:`updateDocxToc.vbs` 會被 Microsoft Defender 以機器學習判為 `Trojan:Script/ObfusScript.A!ml`(誤報,提出方審閱全文判定;任何程式一讀取即隔離),隔離後 `getFpVbs()` 回空字串;`addDocxToc` 此時之拒絕訊息於原因 `updateDocxToc.vbs is not found in [...] or [...]` 之後以 `; ` 接固定提示(含 `quarantined`、`Trojan:Script/ObfusScript.A!ml`、處置路徑 `Windows Security > Virus & threat protection > Protection history`),使用端不致誤判為套件漏檔.訊息只含固定詞彙與套件自身位置(不帶憑證或資料值;診斷輸出與遮罩 D3、Q3).README〈TOC〉節同列誤報、症狀、處置,且與訊息字面一致(含「還原前勿以其他工具讀取、複製或雜湊該檔」).`cvMdToDocx` 於此情形沿用既有之清理:刪除本次產出之 docx 後 reject.
-- 盤點:Grep `is not found in` `src/`(glob 加 `!**/*.vbs`).
-- 站點全集:`src/addDocxToc.mjs:143`(已套)——全套件僅此一處產出該訊息.
-- 判準:訊息含 `quarantined`、`Protection history`;README 含訊息之關鍵字面(`updateDocxToc.vbs is not found`、`quarantined`、`Trojan:Script/ObfusScript.A!ml`、`Windows Security > Virus & threat protection > Protection history`).
-- 測試:`test/unit-cvMdToDocx.test.mjs`〈updateDocxToc.vbs被防毒軟體隔離(找不到)時…〉(假轉檔器、不需 Word 之前半:改名模擬隔離 → `toc:true` reject 訊息含兩字樣且不留 docx、README 字面一致;改回原名後同一呼叫:有 Word 成功、無 Word 為 Word 之失敗原因,皆不含 `quarantined`).**並行約束**:`npm test` 為 `mocha --parallel`,改名真實 vbs 之窗口內他檔之 toc/`getFpVbs` 測試會找不到該檔,故全套**只此一案**改名(窗口僅含一次子程序,改回後之 Word 呼叫在窗口外),不得於他檔再增改名案.
-- 不做(主控 2026-11-02 裁定):評估不以獨立 .vbs 驅動 Word 之作法、向 Microsoft 提交誤報(建議#53 §3).
-- 作業守則:不讀取、複製、雜湊該檔,見 `sgud/exp/experience.md`〈防毒軟體與 updateDocxToc.vbs〉.
+- 規則:`addDocxToc` 以 Windows PowerShell 5.1(`powershell.exe`,Windows 內建)經 COM 驅動 Word 更新欄位,腳本以 `-NoProfile -NonInteractive -EncodedCommand <UTF-16LE base64>` 帶於命令列,**不寫成任何腳本檔**(.ps1、.vbs、暫存腳本皆無);原因:獨立之 `updateDocxToc.vbs` 曾被 Microsoft Defender 以機器學習誤判為 `Trojan:Script/ObfusScript.A!ml`(任何程式一讀取即隔離),且 VBScript 已公告淘汰.
+  - 路徑不拼進腳本字串:由環境變數 `W_MD2DOCX_SRC`、`W_MD2DOCX_DST` 帶入(`execPs` 於呼叫期間暫設 `process.env`、落定後還原;`-EncodedCommand` 之後不可再接引數,實測會被拒);含空白、中文與 `&^%!;,='` `` ` `` `$"` 之路徑原樣通過.
+  - 輸出格式、離開碼、訊息字頭與舊 vbs 相同:成功 `toc=<n> tof=<n> pages=<n>` + `ok`、離開碼 0;失敗 `error: <原因>`、離開碼 1,字頭 `cannot start Microsoft Word: `/`open failed: `/`update failed: `/`save failed: `(另存失敗時統計行在前);缺環境變數為用法錯誤、離開碼 2.原因文字之換行折為空格(舊 vbs 保留換行).
+  - 各階段 try/catch 分段(對應 `On Error Resume Next` 與分段檢查);失敗先印錯誤、再關閉文件與 Word;`$word.Quit([ref]0)`、`$doc.Close([ref]0)` **須 `[ref]`**(實測 `Quit(0)` 擲「引數應該是 PSReference」,被收尾 `catch {}` 吞掉,WINWORD 每次殘留一個);`$ProgressPreference` 置首行(否則 stderr 被導向時先輸出 CLIXML 進度);stdout 設 UTF-8,`execProcess` 以 `codeCmd: 'auto'`(stdout UTF-8、stderr 系統字碼頁各自判定);`fromClixml` 還原未捕捉例外之 CLIXML.
+  - src 與打包不含 .vbs/.ps1;腳本僅含 ASCII;編碼後命令列 5,384 字元(上限 32,767).
+- 盤點:Grep `cscript|wscript|\.vbs|\.ps1|powershell` `src/`(glob 加 `!**/*.vbs`);`ls src` 無 .vbs/.ps1.
+- 站點全集:`src/addDocxToc.mjs:26`(`psScript`)、`:97`(`execPs`)、`:126`(`runWord`)——全套件驅動 Word 之腳本僅此一處.測試資產 `test/tools/figurePages.vbs`(量測圖名頁碼,`imgFixture.mjs` 以 cscript 執行)為**另一個獨立 .vbs**,不在本規則範圍,見〈已知限制〉.
+- 判準:`src/` 無 .vbs/.ps1、原始碼不呼叫 cscript/wscript、`package.json` 不提 .vbs;執行前後系統暫存夾與套件目錄無新增 .ps1;成功與各階段失敗後無本次新啟動之 WINWORD.
+- 測試:`test/unit-addDocxToc.test.mjs`(腳本 ASCII/不含路徑/命令列長度、無腳本檔、`fromClixml`、`execPs` 環境變數原樣帶入與還原、離開碼/未捕捉例外/逾時、用法錯誤與 Word 無法啟動之字頭、〈Word更新〉無 .ps1 落地)、`test/unit-cvMdToDocx.test.mjs`(〈Word更新腳本(PowerShell)〉真 Word:成功/open/update/save 各字頭與無 WINWORD 殘留;〈powershell.exe無法啟動〉;〈README之TOC節〉).
+- 不做/限制:受限語言模式(Constrained Language Mode,AppLocker/WDAC)下 `New-Object -ComObject` 被禁,無法以此法驅動 Word(模擬實測 `Cannot create type`);逾時時 `powershell.exe` 樹被結束而 COM 啟動之 WINWORD 不在其中,可能殘留(與舊 cscript 作法相同);`execProcess` 無 `env` 選項,故暫設 `process.env`(呼叫端須序列化,`addDocxToc` 經 `runExclusive`).
+- 作業守則:不再有須避讀之 .vbs;`test/tools/figurePages.vbs` 未動.
 
 ### R-TEST-1 呼叫 Word 之測試併於 `unit-cvMdToDocx.test.mjs` 依序執行
 
@@ -78,7 +82,7 @@
 | `src/utils.mjs` | `unit-utils`、`unit-cvMdTo`、`unit-cvMdToDocx`、`unit-addDocxToc`、`api-rmApiServer`、`api-rmApiClient` |
 | `src/cvMdToDocx.mjs` | `unit-cvMdToDocx`、`unit-cvMdToDocxImg`、`unit-cvMdTo`、`api-rmApiServer` |
 | `src/cvMdTo.mjs` | `unit-cvMdTo`、`unit-cvMdToDocx`、`api-rmApiServer`、`api-rmApiClient` |
-| `src/addDocxToc.mjs`、`docxToc.mjs` | `unit-addDocxToc`、`unit-docxToc`、`unit-cvMdToDocx`(含 R-AV-1 之隔離案) |
+| `src/addDocxToc.mjs`、`docxToc.mjs` | `unit-addDocxToc`、`unit-docxToc`、`unit-cvMdToDocx`(含 R-AV-1 之 PowerShell 腳本案) |
 | `src/docxKeep.mjs`、`docxXml.mjs` | `unit-docxKeep`、`unit-cvMdToDocx` |
 | `src/rmApiServer.mjs`、`rmApiClient.mjs` | `api-rmApiServer`、`api-rmApiClient` |
 | 升 w-md2html / w-html2docx | 全套 `npm test`(真 Word,經 `quiet-run --lock`) |
@@ -94,3 +98,4 @@
 - 內容非圖片但副檔名為 `.png` 之檔,Word 不報錯(w-html2docx 不偵測).
 - w-md2html:同一行多個 `<img src="">` 擲 `size(s)!==2`;單引號/無引號 `src` 不處理(上游另案).
 - 不帶 `pHYs` 且小於版心之 PNG 依 96 dpi 顯示(每像素 0.75 點),過去為 1 點(待主控裁示是否需補償,見報告).
+- `test/tools/figurePages.vbs`(測試資產:以 Word 量圖與圖名之頁碼,`test/tools/imgFixture.mjs` 以 cscript 執行)仍是獨立 .vbs;因 `package.json` 無 `files` 且無 `.npmignore`,`test/` 隨 npm 包發布,該檔因而仍在發布內容中.R-AV-1 只處理 `src/` 驅動 Word 之腳本,此檔待主控裁示(改為 `execPs` 之 PowerShell 腳本,或自發布內容排除 `test/`).

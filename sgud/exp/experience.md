@@ -10,12 +10,20 @@
 - 假轉檔器(`runWithFakeHtml2docx`)另記錄所收之中介 html(`globalThis.fakeHtml2docxHtml`),可 `reject` 指定字串;假的 `WHtml2docx` 無 `ensureBins` 屬性,故用假轉檔器之子程序不可呼叫 `checkDocxReady`(health).
 - `process.env` 為 fsEnsureBins 於呼叫時讀取(`W_BIN_CACHE`、`W_BIN_MIRROR`、`W_BIN_OFFLINE`),單元測試可暫改後還原;快取位置 `<W_BIN_CACHE>/w-html2docx/<sha256>/htmlToDocx.exe`,預設為 `node_modules/w-html2docx/bin-cache/<sha256>/htmlToDocx.exe`(無 pkg 層).`ensureBins({ offline: true, mirror: '' })` 不連網、不用 `W_BIN_MIRROR`,快取內校驗不符之檔會被刪除.
 
-## 防毒軟體與 updateDocxToc.vbs(2026-11-02,Gitea #53)
+## 防毒軟體與 Word 驅動腳本(2026-11-02,Gitea #53 建議 3:vbs 改 PowerShell,腳本不落地)
 
-- Microsoft Defender 即時保護以機器學習把 `src/updateDocxToc.vbs` 判為 `Trojan:Script/ObfusScript.A!ml`(嚴重性:嚴重,誤報;推測成因為「腳本驅動 Word 開檔另存＋`On Error Resume Next`」近似巨集型惡意程式),**任何程式一讀取即隔離**(cgsmdb 實例:agent 讀檔、`cp`、`sha256sum` 皆觸發,他專案之副本亦遭隔離).隔離後 `getFpVbs()` 回 `''`,使用端只見 `updateDocxToc.vbs is not found`,誤判為套件漏檔;還原並允許後再被 cscript 執行與讀取即不再隔離.訊息與 README 之處置見 R-AV-1.
-- **作業守則(動此檔所在套件時)**:不得 Read、複製、雜湊該檔,亦不得 `git diff`/`git status`/`git ls-files --eol` 不帶 pathspec(這些會開檔比對或偵測行尾);Grep 一律加 `glob: !**/*.vbs`;查檔存在與大小用 `ls -la`、`fs.statSync`(只讀中介資料,不開檔).Glob `src/*` 之結果曾不列出該檔(`ls` 與 `git ls-files` 皆有),查存在以 `ls`/`fs.statSync` 為準.本輪改前改後回驗:2050 bytes、mtimeMs 1791612190477.4 不變.
-- **測試以改名模擬隔離**:`fs.renameSync(vbs, vbs + '.hidden-by-test')` → 呼叫 → `finally` 改回並回驗大小;改名不開檔.**`npm test` 為 `mocha --parallel`,改名窗口內他檔之 toc/`getFpVbs`/讀該檔之測試會找不到該檔**,故全套只留一案(`unit-cvMdToDocx`〈被防毒軟體隔離〉),窗口僅含假轉檔器之一次子程序(約 1 s),改回後之真 Word 呼叫(約 8 s)在窗口外;不得於他檔再增改名案.
-- **既有測試本身會碰該檔**:`unit-addDocxToc`〈updateDocxToc.vbs僅含ASCII〉以 `fs.readFileSync` 讀其內容,各 toc 測試以 cscript 執行之.在啟用即時保護且未允許該檔之機器上,跑全套可能觸發隔離(2026-11-02 本機 VM 未隔離,全套照常通過);屬主控裁定範圍外,未改.
+- 緣由:Microsoft Defender 即時保護以機器學習把獨立之 `updateDocxToc.vbs` 判為 `Trojan:Script/ObfusScript.A!ml`(誤報;推測成因為「腳本驅動 Word 開檔另存＋`On Error Resume Next`」近似巨集型惡意程式),任何程式一讀取即隔離,使用端只見 `updateDocxToc.vbs is not found`.處置:改以 Windows 內建 PowerShell 5.1 經 COM 驅動 Word,腳本以 `-EncodedCommand` 帶於命令列、不寫成檔案,並刪除該 vbs(規則 R-AV-1).實測本機(Defender 即時保護與行為監控開啟、無 ASR 規則)跑 PowerShell 版數十次,`Get-MpThreatDetection` 恆為 0,新增/改動之原始碼檔 `MpCmdRun -Scan -ScanType 3 -File` 皆 `found no threats`.**此為本機實測,不保證企業端點(EDR、ASR 規則「阻擋可能經過模糊處理的指令碼」、AppLocker/WDAC 受限語言模式)亦放行**;受限語言模式下 `New-Object -ComObject` 被禁(模擬實測),無解.
+- **PowerShell 5.1 + COM 實測要點**:
+  - `-EncodedCommand <b64>` 之後**不可再接任何引數**(`無法處理命令,因為已經以 -Command 或 -EncodedCommand 指定了命令`,離開碼 0xFFFD0000),`$args` 不可用,故路徑只能走環境變數;`execProcess` 無 `env` 選項,於呼叫期間暫設 `process.env`、**落定後**才還原(`codeCmd: 'auto'` 時子程序要等系統字碼頁查詢完才啟動,呼叫一返回即還原會讓子程序讀不到).含空白、中文、`"&^%!;,='`$` 之路徑經環境變數原樣到達.
+  - `-ExecutionPolicy` 不影響 `-EncodedCommand`(執行原則只管腳本檔),不需也不要加 `-ExecutionPolicy Bypass`(是攻擊腳本之典型旗標,徒增風險);`-NoProfile -NonInteractive` 足矣;視窗已由 `execProcess` 的 `windowsHide` 隱藏.
+  - **stderr 被導向時 `-EncodedCommand` 會先輸出 CLIXML**(`#< CLIXML` 加「正在準備模組以便第一次使用」之進度物件),使離開碼 0 之輸出也被污染;腳本**第一行**設 `$ProgressPreference = 'SilentlyContinue'` 即消失.未捕捉之例外仍以 CLIXML 的 `<S S="Error">` 出現,`fromClixml` 還原為文字.
+  - 輸出編碼:腳本設 `[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)`(無 BOM),stdout 為 UTF-8,**stderr 仍為系統字碼頁(cp950)**;`execProcess` 的 `codeCmd: 'auto'` 對兩串流各自判定,中文原因皆不亂碼.錯誤原因取最內層例外之 `Message`(Word 的 COMException 說明,與 vbs 的 `Err.Description` 同文),換行折為空格.
+  - `exit N` 於 `-EncodedCommand` 即行程離開碼;`exit` 於 try 內仍會執行 finally.收尾用 `do { … break … } while ($false)` 單趟迴圈,`break` 可自 catch 跳出.
+  - **`$word.Quit(0)` 在 Word 16 + PS 5.1 擲「引數應該是 PSReference。請使用 [ref]。」**(`$doc.Close(0)` 卻可),被收尾之 `catch {}` 吞掉 → **每次 WINWORD 殘留一個(約 130 MB)**;改 `Quit([ref]0)`、`Close([ref]0)` 後零殘留.教訓:吞錯之收尾必須有「執行後無殘留行程」之測試(`test/tools/wordProcs.mjs` 的 `waitWordGone`),不能只看輸出與離開碼.
+  - 受保護(唯讀)文件使 `Repaginate` 擲「該文件已編輯鎖定狀態中」,PS 與 vbs 皆為 `error: update failed:`,可作階段字頭測試之夾具(settings.xml 加 `<w:documentProtection w:edit="readOnly" w:enforcement="1"/>`).
+  - 逾時:`execProcess` 結束 `powershell.exe` 之樹,COM 啟動之 WINWORD 不在其中而殘留(700 ms 逾時實測 1 個殘留),與 cscript 作法相同;須人工結束.
+  - 耗時:Word 更新同一份文件各 5 次(交錯)中位數兩輪方向相反——cscript 2523 ms 對 PowerShell 1852 ms、cscript 2335 ms 對 PowerShell 2814 ms,無一致差異;PowerShell 第一次(冷啟動)較慢可達 4~5 s;不連 Word 的用法錯誤路徑 55 ms 對 265 ms.
+- 舊 vbs 之作業守則(不讀、不複製、不雜湊該檔,Grep 加 `!**/*.vbs`)隨該檔刪除而不再適用;`test/tools/figurePages.vbs`(量測圖名頁碼)是另一個獨立 .vbs,仍以 cscript 執行,未動,見規則帳本〈已知限制〉.
 
 ## 圖片與 Word 行為(2026-10-29,Word 16 實測)
 

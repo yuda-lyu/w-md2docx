@@ -2,8 +2,8 @@
 
 本檔記載當前已開發功能之最新狀態(各功能做到哪裡、對應之規則帳本條目與測試檔、已知缺口與待辦、最近一次驗證或發布之版本),只記現況、不寫過程(過程見 `sgud/exp/experience.md`).規則帳本(`sgud/rule/rulebook.md`)為藍圖,與本檔比對即知尚未做到者.
 
-- 套件版本:`package.json` 1.0.22(本輪修正未改版本、未發布,由主控發布);依賴 `w-md2html` `^1.1.16`、`w-html2docx` `^1.0.44`、`wsemi` `^1.9.45`(實裝 1.1.16、1.0.44、1.9.45).
-- 最近一次驗證:2026-11-02 全套 `npm test`(真 Word 16、經 `quiet-run --lock`)252 passing、1 pending(既有:有 Word 時略過「無Word時…」)、0 failing;`eslint --ext .mjs src test` 0 error.
+- 套件版本:`package.json` 1.0.23(本輪 md282 未改版本、未發布,由主控發布);依賴 `w-md2html` `^1.1.16`、`w-html2docx` `^1.0.44`、`wsemi` `^1.9.45`(實裝 1.1.16、1.0.44、1.9.45).
+- 最近一次驗證:2026-11-02(md282,vbs 改 PowerShell)全套 `npm test`(真 Word 16、經 `quiet-run --lock`)258 passing、1 pending(既有:有 Word 時略過「無Word時…」)、0 failing;`eslint --ext .mjs src test` 0 error;更換前後 11 個 toc 樣本(回傳值、目錄項目文字與頁碼、節數)逐項相同.
 
 ## 功能
 
@@ -15,8 +15,8 @@
 | `cvMdTo` md 內容 → html/docx(base64) | 完成.回傳 html 恆自足(含 `both`),先於 docx 產製;base64 合計 > 約 401,866,734 位元組時明確 reject | R-IMG-2、R-IMG-3、R-LIM-2 | `unit-cvMdTo`、`unit-utils`、`unit-cvMdToDocx` | 更大之 docx 須改串流/檔案回傳(另案) |
 | `rmApiServer` | 完成.`GET /api/health` 之 `exeFound`/`exePath` 為 w-html2docx 快取之診斷(只看快取);超限回 500 + 明確訊息、服務不中止 | R-DIAG-1、R-LIM-2 | `api-rmApiServer` | — |
 | `rmApiClient` | 完成.缺圖於送出前 reject;`allowMissingAssets` 已移除 | R-IMG-3 | `api-rmApiClient` | 夾帶資產/模板之請求 JSON 受字串上限限制,超限為通用錯誤(已知不修) |
-| `addDocxToc` 找不到 `updateDocxToc.vbs` 之訊息 | 完成(Gitea #53).拒絕訊息於原因之後附「可能被防毒軟體隔離」與還原路徑(含 `quarantined`、`Trojan:Script/ObfusScript.A!ml`、`Protection history`);README〈TOC〉節同列誤報、症狀與處置,字面與訊息一致;行為無變動 | R-AV-1 | `unit-cvMdToDocx`〈被防毒軟體隔離〉 | 不以獨立 .vbs 驅動 Word 之替代作法、向 Microsoft 提交誤報:主控裁定本輪不做 |
-| `addDocxToc`、`docxKeep`、`docxToc` | 未動(僅 `addDocxToc` 加大小檢查) | — | `unit-addDocxToc`、`unit-docxKeep`、`unit-docxToc` | — |
+| `addDocxToc` 驅動 Word 之方式 | 完成(Gitea #53 建議 3).以 Windows PowerShell 5.1 經 COM 驅動 Word,腳本以 `-EncodedCommand` 帶於命令列、不落地(無 .ps1/.vbs);路徑經環境變數 `W_MD2DOCX_SRC`/`W_MD2DOCX_DST`;輸出格式、離開碼、錯誤字頭同舊 vbs;`src/updateDocxToc.vbs` 與 `getFpVbs`、隔離訊息已移除;目錄/頁碼/核對/覆寫之行為不變(11 樣本與更換前逐項相同) | R-AV-1 | `unit-addDocxToc`、`unit-cvMdToDocx`〈Word更新腳本(PowerShell)〉〈powershell.exe無法啟動〉〈README之TOC節〉 | 受限語言模式(AppLocker/WDAC)下無法驅動 Word;逾時時 COM 啟動之 WINWORD 可能殘留(同舊作法);`test/tools/figurePages.vbs`(測試資產,量測頁碼)仍為獨立 .vbs,待主控裁示是否改為 PowerShell |
+| `addDocxToc`、`docxKeep`、`docxToc` 之其餘部分 | 未動 | — | `unit-addDocxToc`、`unit-docxKeep`、`unit-docxToc` | — |
 
 ## 大量圖片實測(2026-10-29,不入測試套件)
 

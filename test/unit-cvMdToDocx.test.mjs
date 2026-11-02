@@ -8,8 +8,12 @@ import WMd2html from 'w-md2html/src/WMd2html.mjs'
 import WHtml2docx from 'w-html2docx/src/WHtml2docx.mjs'
 import cvMdToDocx from '../src/cvMdToDocx.mjs'
 import cvMdTo from '../src/cvMdTo.mjs'
+import { unzipSync, zipSync, strFromU8, strToU8 } from 'fflate'
+import { psScript, execPs } from '../src/addDocxToc.mjs'
+import { prepDocxToc } from '../src/docxToc.mjs'
 import { runExclusive } from '../src/utils.mjs'
 import hasWord from './tools/hasWord.mjs'
+import { wordPids, waitWordGone } from './tools/wordProcs.mjs'
 import runWithFakeHtml2docx from './tools/fakeHtml2docx.mjs'
 import { parts, buildDocx, readPart, listParas } from './tools/docxFixture.mjs'
 import { genTallPng, getImgHeights, getFigurePages } from './tools/imgFixture.mjs'
@@ -232,9 +236,67 @@ describe('cvMdToDocx 實轉(需Windows+Microsoft Word)', function() {
         assert.strict.deepEqual([ps[iFig - 1].hasPic, ps[iFig - 1].keepNext, ps[iFig].keepLines], [true, true, true])
         let pTab = ps.find((p) => p.text.startsWith('表1'))
         assert.strict.deepEqual([pTab.keepNext, pTab.keepLines], [true, true])
-        //Word 開啟另存: 開檔失敗(檔案損毀)時 updateDocxToc.vbs 以離開碼 1 結束, execFileSync 拋錯
-        let out = execFileSync('cscript', ['//nologo', path.resolve('./src/updateDocxToc.vbs'), fpOutKeep, path.resolve(fdTmp, 'keep-resaved.docx')], { encoding: 'utf8', windowsHide: true })
+        //Word 開啟另存: 以 addDocxToc 之 Word 更新腳本(PowerShell)開檔另存, 開檔失敗(檔案損毀)時離開碼為 1, execPs 會 reject
+        let out = await execPs(psScript, { W_MD2DOCX_SRC: fpOutKeep, W_MD2DOCX_DST: path.resolve(fdTmp, 'keep-resaved.docx') }, 180000)
         assert.strict.equal(/(^|\n)ok\s*$/.test(out.trim()), true, out)
+    })
+
+    it('Word更新腳本(PowerShell): 成功印toc/tof/pages與ok並另存(路徑含空白、中文與特殊字元); 開檔、更新、另存各階段失敗之字頭與離開碼1同舊vbs; 成功與失敗後皆無本次啟動之WINWORD殘留', async function() {
+        this.timeout(600000)
+        let { heading, body, capTab, table, cover } = parts
+        let fd = path.resolve(fdTmp, 'ps')
+        fs.mkdirSync(fd, { recursive: true })
+        let before = wordPids()
+
+        //來源: 經 prepDocxToc 準備(含目錄欄位與表目錄欄位)之 docx, 即 addDocxToc 交予 Word 者
+        let u8 = prepDocxToc(new Uint8Array(buildDocx(cover() + heading('第一章 緒論', 0, { pb: true }) + body('內容。') + capTab('表1 參數一覽') + table() + heading('第二章 方法', 0, { pb: true }) + body('內容。'))), {}).u8
+        let src = path.resolve(fd, '來源 a&b%PATH%^!;,=.docx')
+        let dst = path.resolve(fd, '輸出 a&b%PATH%^!;,=.docx')
+        fs.writeFileSync(src, u8)
+        let run = (s, d) => execPs(psScript, { W_MD2DOCX_SRC: s, W_MD2DOCX_DST: d }, 180000)
+        let rej = async (s, d) => {
+            let err = null
+            await run(s, d).catch((e) => {
+                err = e
+            })
+            assert.strict.equal(typeof err, 'string')
+            return err
+        }
+
+        //成功: `toc=<n> tof=<n> pages=<n>` 後接 `ok`(離開碼0), 另存之檔存在
+        let out = (await run(src, dst)).trim()
+        let m = out.match(/^toc=(\d+) tof=(\d+) pages=(\d+)\r?\nok$/)
+        assert.strict.notEqual(m, null, out)
+        assert.strict.deepEqual([m[1], m[2]], ['1', '1'])
+        assert.strict.equal(Number(m[3]) >= 1, true)
+        assert.strict.equal(fs.statSync(dst).size > 0, true)
+
+        //開檔失敗: 檔案不存在、檔案損毀 -> `error: open failed: `, 不另存
+        let dstOpen = path.resolve(fd, 'open-failed.docx')
+        let fpBad = path.resolve(fd, 'corrupt.docx')
+        fs.writeFileSync(fpBad, 'not a docx at all')
+        for (let s of [path.resolve(fd, 'nope.docx'), fpBad]) {
+            let e = await rej(s, dstOpen)
+            assert.strict.equal(e.startsWith('code[1]:\nerror: open failed: '), true, e)
+        }
+        assert.strict.equal(fs.existsSync(dstOpen), false)
+
+        //更新失敗: 唯讀保護之文件(Word 擲「編輯鎖定狀態」) -> `error: update failed: `, 不另存
+        let z = unzipSync(u8)
+        z['word/settings.xml'] = strToU8(strFromU8(z['word/settings.xml']).replace(/(<w:settings\b[^>]*>)/, '$1<w:documentProtection w:edit="readOnly" w:enforcement="1"/>'))
+        let fpProt = path.resolve(fd, 'protected.docx')
+        fs.writeFileSync(fpProt, zipSync(z))
+        let dstUpd = path.resolve(fd, 'update-failed.docx')
+        let eUpd = await rej(fpProt, dstUpd)
+        assert.strict.equal(eUpd.startsWith('code[1]:\nerror: update failed: '), true, eUpd)
+        assert.strict.equal(fs.existsSync(dstUpd), false)
+
+        //另存失敗: 目的資料夾不存在 -> 先印統計行, 再 `error: save failed: `
+        let eSave = await rej(src, path.resolve(fd, 'no-such-dir', 'x.docx'))
+        assert.strict.equal(/^code\[1\]:\ntoc=1 tof=1 pages=\d+\r?\nerror: save failed: /.test(eSave), true, eSave)
+
+        //Word 於成功與各階段失敗後皆已結束(Quit 須以 [ref] 傳參, 否則被收尾之 catch 吞掉而 WINWORD 殘留)
+        assert.strict.deepEqual(await waitWordGone(before), [])
     })
 
     it('整頁高之長圖: 預設預留4格使圖高為(38-4)×18-0.5點, 連續長圖各與其圖名同頁(未開同頁、keepCaption、toc皆然)', async function() {
@@ -610,7 +672,7 @@ describe('cvMdToDocx 轉檔後處理(假轉檔器, 不需Word)', function() {
         `await m.default(process.env.T_MD, process.env.T_DOCX, JSON.parse(process.env.T_OPT)).then((v) => { r = v }).catch((e) => { err = e })`,
         `process.stdout.write('@@RESULT@@' + JSON.stringify({ r, err, exists: fs.existsSync(process.env.T_DOCX) }))`,
     ].join('\n')
-    let conv = (fpFixture, name, opt) => {
+    let conv = (fpFixture, name, opt, envMore = {}) => {
         let fpDocx = path.resolve(fdTmp, `${name}.docx`)
         let res = runWithFakeHtml2docx(script, {
             fpDocx: fpFixture,
@@ -619,6 +681,7 @@ describe('cvMdToDocx 轉檔後處理(假轉檔器, 不需Word)', function() {
                 T_MD: fpMd,
                 T_DOCX: fpDocx,
                 T_OPT: JSON.stringify(opt),
+                ...envMore,
             },
         })
         return { ...res, fpDocx }
@@ -678,53 +741,22 @@ describe('cvMdToDocx 轉檔後處理(假轉檔器, 不需Word)', function() {
         assert.strict.equal(res.exists, false)
     })
 
-    it('updateDocxToc.vbs被防毒軟體隔離(找不到)時: reject指出可能被隔離與還原處置並刪除本次產出之docx, README之說明與訊息字面一致; 改回原名後同一呼叫不再出現該訊息', function() {
+    it('powershell.exe無法啟動(PATH不含)時: Word更新失敗之原因為spawn[…], 刪除本次產出之docx並reject, 不嘗試其他腳本檔', function() {
         this.timeout(180000)
-
-        //模擬隔離: 僅改名(不讀檔案內容), finally改回並回驗檔名與大小
-        //why: npm test 為 mocha --parallel, 改名期間他檔之toc測試亦會找不到該檔, 故全套只此一案改名, 窗口僅含一次子程序, 改回後之成功呼叫置於窗口外
-        let fpVbs = path.resolve('./src/updateDocxToc.vbs')
-        let fpHide = `${fpVbs}.hidden-by-test`
-        let sizeVbs = fs.statSync(fpVbs).size
-        let res = null
-        fs.renameSync(fpVbs, fpHide)
-        try {
-            res = conv(fpWord, 'quarantined', { toc: true })
-        }
-        finally {
-            fs.renameSync(fpHide, fpVbs)
-        }
-        assert.strict.equal(fs.existsSync(fpHide), false)
-        assert.strict.equal(fs.statSync(fpVbs).size, sizeVbs)
-
-        //拒絕訊息(建議#53之驗證建議1): 保留找不到之原因, 並指出可能被防毒軟體隔離與處置
-        let fdSrc = path.resolve('./src')
+        //PATH 清空使 powershell.exe 找不到(node 本身以絕對路徑啟動); Windows 之環境變數名稱不分大小寫, 兩種寫法皆清
+        let res = conv(fpWord, 'nops', { toc: true }, { PATH: '', Path: '' })
         assert.strict.equal(res.r, null)
-        assert.strict.equal(String(res.err).startsWith(`Failed to add the TOC: updateDocxToc.vbs is not found in [${fdSrc}] or [${fdSrc}]; `), true, String(res.err))
-        assert.strict.equal(String(res.err).includes('quarantined'), true, String(res.err))
-        assert.strict.equal(String(res.err).includes('Protection history'), true, String(res.err))
+        assert.strict.equal(/^Failed to add the TOC: Word failed to update the fields: spawn\[[A-Z]+\]:/.test(String(res.err)), true, String(res.err))
         assert.strict.equal(res.exists, false) //已產出之docx缺所要求之目錄, 刪除後才reject
+    })
 
-        //README之說明與實際訊息字面一致(建議#53之驗證建議2)
+    it('README之TOC節: 述明以PowerShell 5.1經COM驅動Word、腳本不落地, 不再提updateDocxToc.vbs與cscript', function() {
         let readme = fs.readFileSync('./README.md', 'utf8')
-        for (let phrase of ['updateDocxToc.vbs is not found', 'quarantined', 'Trojan:Script/ObfusScript.A!ml', 'Windows Security > Virus & threat protection > Protection history']) {
-            assert.strict.equal(String(res.err).includes(phrase), true, `message: ${phrase}`)
+        for (let phrase of ['PowerShell 5.1', 'powershell.exe', 'EncodedCommand', 'Microsoft Word']) {
             assert.strict.equal(readme.includes(phrase), true, `README: ${phrase}`)
         }
-
-        //改回原名後同一呼叫: 有Word時成功, 無Word時為Word之失敗原因, 皆不再是隔離訊息
-        let res2 = conv(fpWord, 'restored', { toc: true })
-        assert.strict.equal(String(res2.err).includes('quarantined'), false, String(res2.err))
-        if (hasWord()) {
-            assert.strict.equal(res2.err, null, String(res2.err))
-            assert.strict.equal(res2.exists, true)
-            assert.strict.deepEqual(res2.r.toc.lists, ['toc', 'tab'])
-            assert.strict.equal(res2.r.toc.toc, 2)
-            assert.strict.equal(res2.r.toc.tab, 1)
-        }
-        else {
-            assert.strict.equal(/^Failed to add the TOC: Word failed to update the fields: /.test(String(res2.err)), true, String(res2.err))
-            assert.strict.equal(res2.exists, false)
+        for (let phrase of ['updateDocxToc.vbs', 'cscript', 'ObfusScript']) {
+            assert.strict.equal(readme.includes(phrase), false, `README should not mention: ${phrase}`)
         }
     })
 
