@@ -10,6 +10,13 @@
 - 假轉檔器(`runWithFakeHtml2docx`)另記錄所收之中介 html(`globalThis.fakeHtml2docxHtml`),可 `reject` 指定字串;假的 `WHtml2docx` 無 `ensureBins` 屬性,故用假轉檔器之子程序不可呼叫 `checkDocxReady`(health).
 - `process.env` 為 fsEnsureBins 於呼叫時讀取(`W_BIN_CACHE`、`W_BIN_MIRROR`、`W_BIN_OFFLINE`),單元測試可暫改後還原;快取位置 `<W_BIN_CACHE>/w-html2docx/<sha256>/htmlToDocx.exe`,預設為 `node_modules/w-html2docx/bin-cache/<sha256>/htmlToDocx.exe`(無 pkg 層).`ensureBins({ offline: true, mirror: '' })` 不連網、不用 `W_BIN_MIRROR`,快取內校驗不符之檔會被刪除.
 
+## 防毒軟體與 updateDocxToc.vbs(2026-11-02,Gitea #53)
+
+- Microsoft Defender 即時保護以機器學習把 `src/updateDocxToc.vbs` 判為 `Trojan:Script/ObfusScript.A!ml`(嚴重性:嚴重,誤報;推測成因為「腳本驅動 Word 開檔另存＋`On Error Resume Next`」近似巨集型惡意程式),**任何程式一讀取即隔離**(cgsmdb 實例:agent 讀檔、`cp`、`sha256sum` 皆觸發,他專案之副本亦遭隔離).隔離後 `getFpVbs()` 回 `''`,使用端只見 `updateDocxToc.vbs is not found`,誤判為套件漏檔;還原並允許後再被 cscript 執行與讀取即不再隔離.訊息與 README 之處置見 R-AV-1.
+- **作業守則(動此檔所在套件時)**:不得 Read、複製、雜湊該檔,亦不得 `git diff`/`git status`/`git ls-files --eol` 不帶 pathspec(這些會開檔比對或偵測行尾);Grep 一律加 `glob: !**/*.vbs`;查檔存在與大小用 `ls -la`、`fs.statSync`(只讀中介資料,不開檔).Glob `src/*` 之結果曾不列出該檔(`ls` 與 `git ls-files` 皆有),查存在以 `ls`/`fs.statSync` 為準.本輪改前改後回驗:2050 bytes、mtimeMs 1791612190477.4 不變.
+- **測試以改名模擬隔離**:`fs.renameSync(vbs, vbs + '.hidden-by-test')` → 呼叫 → `finally` 改回並回驗大小;改名不開檔.**`npm test` 為 `mocha --parallel`,改名窗口內他檔之 toc/`getFpVbs`/讀該檔之測試會找不到該檔**,故全套只留一案(`unit-cvMdToDocx`〈被防毒軟體隔離〉),窗口僅含假轉檔器之一次子程序(約 1 s),改回後之真 Word 呼叫(約 8 s)在窗口外;不得於他檔再增改名案.
+- **既有測試本身會碰該檔**:`unit-addDocxToc`〈updateDocxToc.vbs僅含ASCII〉以 `fs.readFileSync` 讀其內容,各 toc 測試以 cscript 執行之.在啟用即時保護且未允許該檔之機器上,跑全套可能觸發隔離(2026-11-02 本機 VM 未隔離,全套照常通過);屬主控裁定範圍外,未改.
+
 ## 圖片與 Word 行為(2026-10-29,Word 16 實測)
 
 - w-md2html 1.1.12 路徑模式:md 語法圖之路徑含空白須用 `![x](<圖 資料夾/a.png>)`(CommonMark 角括號寫法),否則整段當文字;`%XX` 不解碼(資產路徑 `pics/%E5%9C%96.png` 以原字串在工作夾建檔,Word 以字面 `%` 之反斜線絕對路徑可解析);`&`、`%23` 亦可;缺圖訊息為 `N image file(s) do not exist:` + 逐行絕對路徑(順序不為契約,去重).

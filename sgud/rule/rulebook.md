@@ -56,6 +56,16 @@
 - 站點:`src/cvMdToDocx.mjs:144-151`.
 - 測試:`test/unit-cvMdToDocx.test.mjs`(假轉檔器逐案表;真 w-html2docx 於離線且快取空夾之子程序;錯 cwd 之預設模板).
 
+### R-AV-1 找不到 `updateDocxToc.vbs` 之拒絕訊息須指出可能被防毒軟體隔離(Gitea #53)
+
+- 規則:`updateDocxToc.vbs` 會被 Microsoft Defender 以機器學習判為 `Trojan:Script/ObfusScript.A!ml`(誤報,提出方審閱全文判定;任何程式一讀取即隔離),隔離後 `getFpVbs()` 回空字串;`addDocxToc` 此時之拒絕訊息於原因 `updateDocxToc.vbs is not found in [...] or [...]` 之後以 `; ` 接固定提示(含 `quarantined`、`Trojan:Script/ObfusScript.A!ml`、處置路徑 `Windows Security > Virus & threat protection > Protection history`),使用端不致誤判為套件漏檔.訊息只含固定詞彙與套件自身位置(不帶憑證或資料值;診斷輸出與遮罩 D3、Q3).README〈TOC〉節同列誤報、症狀、處置,且與訊息字面一致(含「還原前勿以其他工具讀取、複製或雜湊該檔」).`cvMdToDocx` 於此情形沿用既有之清理:刪除本次產出之 docx 後 reject.
+- 盤點:Grep `is not found in` `src/`(glob 加 `!**/*.vbs`).
+- 站點全集:`src/addDocxToc.mjs:143`(已套)——全套件僅此一處產出該訊息.
+- 判準:訊息含 `quarantined`、`Protection history`;README 含訊息之關鍵字面(`updateDocxToc.vbs is not found`、`quarantined`、`Trojan:Script/ObfusScript.A!ml`、`Windows Security > Virus & threat protection > Protection history`).
+- 測試:`test/unit-cvMdToDocx.test.mjs`〈updateDocxToc.vbs被防毒軟體隔離(找不到)時…〉(假轉檔器、不需 Word 之前半:改名模擬隔離 → `toc:true` reject 訊息含兩字樣且不留 docx、README 字面一致;改回原名後同一呼叫:有 Word 成功、無 Word 為 Word 之失敗原因,皆不含 `quarantined`).**並行約束**:`npm test` 為 `mocha --parallel`,改名真實 vbs 之窗口內他檔之 toc/`getFpVbs` 測試會找不到該檔,故全套**只此一案**改名(窗口僅含一次子程序,改回後之 Word 呼叫在窗口外),不得於他檔再增改名案.
+- 不做(主控 2026-11-02 裁定):評估不以獨立 .vbs 驅動 Word 之作法、向 Microsoft 提交誤報(建議#53 §3).
+- 作業守則:不讀取、複製、雜湊該檔,見 `sgud/exp/experience.md`〈防毒軟體與 updateDocxToc.vbs〉.
+
 ### R-TEST-1 呼叫 Word 之測試併於 `unit-cvMdToDocx.test.mjs` 依序執行
 
 - 規則:Word 為單一實例,mocha `--parallel` 之不同檔同時調用會互相拒絕(`com_error -2147418111 接收者已拒絕這個呼叫`),失敗後遺留 WINWORD 與開啟中之文件(鎖住 `test/_tmp` 與 `src/templates/~$mp_tpc.docx`).新增之長時間 Word 測試併入該檔(同檔依序),不另開檔.`unit-addDocxToc`/`unit-docxToc` 之 Word 測試為短時間,維持現狀(**殘留風險**:該二檔與 `unit-cvMdToDocx` 於 `--parallel` 開頭同時啟動,2026-10-29 另有一次在舊碼複本樹之全套出現 `com_error -2147023174 RPC 伺服器無法使用`,見 `sgud/exp/experience.md`;其餘全套 3 次未再現).
@@ -68,7 +78,7 @@
 | `src/utils.mjs` | `unit-utils`、`unit-cvMdTo`、`unit-cvMdToDocx`、`unit-addDocxToc`、`api-rmApiServer`、`api-rmApiClient` |
 | `src/cvMdToDocx.mjs` | `unit-cvMdToDocx`、`unit-cvMdToDocxImg`、`unit-cvMdTo`、`api-rmApiServer` |
 | `src/cvMdTo.mjs` | `unit-cvMdTo`、`unit-cvMdToDocx`、`api-rmApiServer`、`api-rmApiClient` |
-| `src/addDocxToc.mjs`、`docxToc.mjs` | `unit-addDocxToc`、`unit-docxToc`、`unit-cvMdToDocx` |
+| `src/addDocxToc.mjs`、`docxToc.mjs` | `unit-addDocxToc`、`unit-docxToc`、`unit-cvMdToDocx`(含 R-AV-1 之隔離案) |
 | `src/docxKeep.mjs`、`docxXml.mjs` | `unit-docxKeep`、`unit-cvMdToDocx` |
 | `src/rmApiServer.mjs`、`rmApiClient.mjs` | `api-rmApiServer`、`api-rmApiClient` |
 | 升 w-md2html / w-html2docx | 全套 `npm test`(真 Word,經 `quiet-run --lock`) |

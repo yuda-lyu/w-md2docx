@@ -139,7 +139,8 @@ async function addDocxToc(fpDocx, opt = {}) {
     //fpVbs
     let fpVbs = getFpVbs()
     if (fpVbs === '') {
-        return Promise.reject(`updateDocxToc.vbs is not found in [${fdSelf}] or [${path.resolve(fdSelf, '..', 'src')}]`)
+        //why: 防毒軟體(如 Microsoft Defender 將其誤判為 Trojan:Script/ObfusScript.A!ml)會於讀取時隔離該檔, 訊息須指出方向, 否則使用端誤判為套件漏檔
+        return Promise.reject(`updateDocxToc.vbs is not found in [${fdSelf}] or [${path.resolve(fdSelf, '..', 'src')}]; it may have been quarantined by antivirus software (e.g. Microsoft Defender reports Trojan:Script/ObfusScript.A!ml, a false positive), restore and allow it from Windows Security > Virus & threat protection > Protection history`)
     }
 
     //準備內容(前提不符即拋錯, 原檔不變)

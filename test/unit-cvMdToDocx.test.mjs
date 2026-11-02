@@ -678,6 +678,56 @@ describe('cvMdToDocx 轉檔後處理(假轉檔器, 不需Word)', function() {
         assert.strict.equal(res.exists, false)
     })
 
+    it('updateDocxToc.vbs被防毒軟體隔離(找不到)時: reject指出可能被隔離與還原處置並刪除本次產出之docx, README之說明與訊息字面一致; 改回原名後同一呼叫不再出現該訊息', function() {
+        this.timeout(180000)
+
+        //模擬隔離: 僅改名(不讀檔案內容), finally改回並回驗檔名與大小
+        //why: npm test 為 mocha --parallel, 改名期間他檔之toc測試亦會找不到該檔, 故全套只此一案改名, 窗口僅含一次子程序, 改回後之成功呼叫置於窗口外
+        let fpVbs = path.resolve('./src/updateDocxToc.vbs')
+        let fpHide = `${fpVbs}.hidden-by-test`
+        let sizeVbs = fs.statSync(fpVbs).size
+        let res = null
+        fs.renameSync(fpVbs, fpHide)
+        try {
+            res = conv(fpWord, 'quarantined', { toc: true })
+        }
+        finally {
+            fs.renameSync(fpHide, fpVbs)
+        }
+        assert.strict.equal(fs.existsSync(fpHide), false)
+        assert.strict.equal(fs.statSync(fpVbs).size, sizeVbs)
+
+        //拒絕訊息(建議#53之驗證建議1): 保留找不到之原因, 並指出可能被防毒軟體隔離與處置
+        let fdSrc = path.resolve('./src')
+        assert.strict.equal(res.r, null)
+        assert.strict.equal(String(res.err).startsWith(`Failed to add the TOC: updateDocxToc.vbs is not found in [${fdSrc}] or [${fdSrc}]; `), true, String(res.err))
+        assert.strict.equal(String(res.err).includes('quarantined'), true, String(res.err))
+        assert.strict.equal(String(res.err).includes('Protection history'), true, String(res.err))
+        assert.strict.equal(res.exists, false) //已產出之docx缺所要求之目錄, 刪除後才reject
+
+        //README之說明與實際訊息字面一致(建議#53之驗證建議2)
+        let readme = fs.readFileSync('./README.md', 'utf8')
+        for (let phrase of ['updateDocxToc.vbs is not found', 'quarantined', 'Trojan:Script/ObfusScript.A!ml', 'Windows Security > Virus & threat protection > Protection history']) {
+            assert.strict.equal(String(res.err).includes(phrase), true, `message: ${phrase}`)
+            assert.strict.equal(readme.includes(phrase), true, `README: ${phrase}`)
+        }
+
+        //改回原名後同一呼叫: 有Word時成功, 無Word時為Word之失敗原因, 皆不再是隔離訊息
+        let res2 = conv(fpWord, 'restored', { toc: true })
+        assert.strict.equal(String(res2.err).includes('quarantined'), false, String(res2.err))
+        if (hasWord()) {
+            assert.strict.equal(res2.err, null, String(res2.err))
+            assert.strict.equal(res2.exists, true)
+            assert.strict.deepEqual(res2.r.toc.lists, ['toc', 'tab'])
+            assert.strict.equal(res2.r.toc.toc, 2)
+            assert.strict.equal(res2.r.toc.tab, 1)
+        }
+        else {
+            assert.strict.equal(/^Failed to add the TOC: Word failed to update the fields: /.test(String(res2.err)), true, String(res2.err))
+            assert.strict.equal(res2.exists, false)
+        }
+    })
+
     it('keepCaption: 圖名表名與其圖表同頁, 結果含統計, docx經改寫且不留暫存檔', function() {
         this.timeout(180000)
         let res = conv(fpFig, 'keep', { keepCaption: true })
