@@ -305,7 +305,7 @@ describe('cvMdToDocx 實轉(需Windows+Microsoft Word)', function() {
         fs.mkdirSync(fd, { recursive: true })
         fs.writeFileSync(path.resolve(fd, 'tall.png'), genTallPng())
         //md: 前言、4個圖區塊(長圖+2行之圖名), 圖區塊間由撰文者寫入w-md2html之換行標記(空段落)
-        let cap = (i) => `圖${i} 用過核子燃料最終處置資訊展示網站之首頁設計稿，含導覽列、主視覺、最新消息、計畫沿革、各階段成果展示與頁尾聯絡資訊之完整版面配置示意`
+        let cap = (i) => `圖${i} 某機關公共服務整合與資訊展示網站之首頁設計稿，含導覽列、主視覺、最新消息、計畫沿革、各階段成果展示與頁尾聯絡資訊之完整版面配置示意`
         let lines = ['前言段落。', '']
         for (let i = 1; i <= 4; i++) {
             lines.push('![](tall.png)', '', cap(i), '')
