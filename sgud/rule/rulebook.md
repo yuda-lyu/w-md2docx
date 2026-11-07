@@ -70,9 +70,22 @@
 - 不做/限制:受限語言模式(Constrained Language Mode,AppLocker/WDAC)下 `New-Object -ComObject` 被禁,無法以此法驅動 Word(模擬實測 `Cannot create type`);逾時時 `powershell.exe` 樹被結束而 COM 啟動之 WINWORD 不在其中,可能殘留(與舊 cscript 作法相同);`execProcess` 無 `env` 選項,故暫設 `process.env`(呼叫端須序列化,`addDocxToc` 經 `runExclusive`).
 - 作業守則:不再有須避讀之 .vbs;`test/tools/figurePages.vbs` 未動.
 
+### R-TPL-1 隨套件附帶之模板與預設樣式名稱須中性,且經真 Word 驗證不被更名(Gitea #96,2026-11-07)
+
+- 規則:
+  1. `src/templates/` 只附中性模板 `temp.docx`:樣式名稱不帶業主、計畫或其簡稱(README〈Templates〉之表為其清單),樣式 id 前綴為 `Rpt`,文件屬性之作者/最後修改者/套用範本名稱皆空,無附加模板(`attachedTemplate`)與其外部連結.不附任何帶業主樣式之模板(原模板已於本輪移除,需要舊外觀之使用端自備模板並給 `fpInTemp` 與 `titleStyle`);`rmApiServer` 之 `templateDef` 預設 `temp.docx`.
+  2. 預設樣式名稱皆為中性:`toc.titleStyle`=`報告目錄標題`、`toc.headStyles`=`['章標題','節標題','小節標題']`;其名稱出現在產出 docx 之樣式清單.
+  3. 樣式名稱不得為 Word 內建樣式之本地化名稱:繁體中文版 Word 以「目錄標題」為內建樣式 TOC Heading 之本地化名稱,自訂樣式同名時於轉檔時被更名為「目錄標題1」(2026-11-07 Word 16 實測),使模板自有之樣式不被沿用(`idOf` 找不到),另建者於另存時亦被更名(「目錄標題2」).故預設名稱不用「目錄標題」;更動預設名稱或模板樣式名稱時,須以真 Word 確認轉檔後仍為原名(模板全部樣式名稱經 Word 轉檔後皆保留,28 個報告樣式中僅「目錄標題」曾被更名).
+  4. 無舊名相容:模板只有舊名樣式而未給 `titleStyle` 者,三目錄標題改用新建之置中粗體樣式(README〈Breaking changes〉8、9).
+- 排版不變:`temp.docx` 與原模板之差異僅為樣式名稱、樣式 id 前綴、`settings.xml` 之 `attachedTemplate` 與其 rels、`docProps` 之作者/最後修改者/範本名稱;其餘部件逐位元組相同,`styles.xml`/`numbering.xml`/`document.xml` 將對照表反向套回後與原模板逐字相同(2026-11-07 驗證,腳本不入 repo,因原模板已移除而不能重跑);以真 Word 對同一 md(封面、2 層標題、圖、表、`toc`、`keepCaption`)用原模板與 `temp.docx` 各轉一次(`titleStyle` 各用其自有之目錄標題樣式):`toc` 回傳(項目數、頁數 6、`levels`、`lists`)相同、圖尺寸相同、全部 `sectPr`(頁面、邊界、行格線、頁碼)相同,`document.xml` 將 pStyle/rStyle/tblStyle 之 id 換為樣式名稱、新名反向還原後逐字相同(25,103 字元;Word 另存會自行重編部分樣式 id 如 `Rpt11`→`aff2`,故不以 id 比對).
+- 盤點:Grep `titleStyle|headStyles` `src/`;`ls src/templates`(只有 `temp.docx`);Grep 模板外之 `\.docx` 範例路徑(`README.md`、`g.mjs`、`src/` JSDoc、`test/`)皆為 `temp.docx`.
+- 站點全集:`src/docxToc.mjs:19`(`tocDef.titleStyle`)、`:20`(`headStyles`)、`:363-371`(模板無該樣式時另建並於呼叫端指定時提示)、`src/addDocxToc.mjs:166-167`(JSDoc)、`src/rmApiServer.mjs:76,138`(`templateDef`)、`src/cvMdToDocx.mjs:43,97`(舉例)、`README.md`(範例、〈Templates〉、〈Breaking changes〉8、9)、`g.mjs:12`.
+- 測試:`test/unit-docxToc.test.mjs`〈未給titleStyle(temp.docx與內建模板)〉〈模板只有舊名樣式…〉〈temp.docx(本套件所附之中性模板)〉(自訂段落樣式清單、樣式 id 前綴、參照皆有對應、文件屬性與附加模板為空、A4/邊界/行格線、預設名稱不為「目錄標題」);`test/unit-cvMdToDocx.test.mjs`〈toc:true且未給titleStyle(temp.docx)〉〈…(模板只有舊名樣式)〉(真 Word:三目錄標題之樣式名稱、模板全部樣式名稱經轉檔後原名保留、樣式 id 前綴;衍生模板於 `test/_tmp`);`test/api-rmApiServer.test.mjs`、`test/api-rmApiClient.test.mjs`(模板清單只有 `temp.docx`).
+- 限制:w-html2docx 內建模板含頁首頁尾,其上 `toc: true` 於真 Word 被拒(`TOC check failed (1): the cover section should have no footer`),修改前即存在、與樣式名稱無關,範圍外未修,見〈已知限制〉;故真 Word 之測試用 `temp.docx` 與其衍生模板.
+
 ### R-TEST-1 呼叫 Word 之測試併於 `unit-cvMdToDocx.test.mjs` 依序執行
 
-- 規則:Word 為單一實例,mocha `--parallel` 之不同檔同時調用會互相拒絕(`com_error -2147418111 接收者已拒絕這個呼叫`),失敗後遺留 WINWORD 與開啟中之文件(鎖住 `test/_tmp` 與 `src/templates/~$mp_tpc.docx`).新增之長時間 Word 測試併入該檔(同檔依序),不另開檔.`unit-addDocxToc`/`unit-docxToc` 之 Word 測試為短時間,維持現狀(**殘留風險**:該二檔與 `unit-cvMdToDocx` 於 `--parallel` 開頭同時啟動,2026-10-29 另有一次在舊碼複本樹之全套出現 `com_error -2147023174 RPC 伺服器無法使用`,見 `sgud/exp/experience.md`;其餘全套 3 次未再現).
+- 規則:Word 為單一實例,mocha `--parallel` 之不同檔同時調用會互相拒絕(`com_error -2147418111 接收者已拒絕這個呼叫`),失敗後遺留 WINWORD 與開啟中之文件(鎖住 `test/_tmp` 與 `src/templates/~$mp.docx`).新增之長時間 Word 測試併入該檔(同檔依序),不另開檔.`unit-addDocxToc`/`unit-docxToc` 之 Word 測試為短時間,維持現狀(**殘留風險**:該二檔與 `unit-cvMdToDocx` 於 `--parallel` 開頭同時啟動,2026-10-29 另有一次在舊碼複本樹之全套出現 `com_error -2147023174 RPC 伺服器無法使用`,見 `sgud/exp/experience.md`;其餘全套 3 次未再現).
 - 測試分層:`unit-` 前綴含真 Word 者沿用既有慣例(`hasWord()` 守門).
 
 ## 二、改動範圍 → 測試檔對照
@@ -82,14 +95,15 @@
 | `src/utils.mjs` | `unit-utils`、`unit-cvMdTo`、`unit-cvMdToDocx`、`unit-addDocxToc`、`api-rmApiServer`、`api-rmApiClient` |
 | `src/cvMdToDocx.mjs` | `unit-cvMdToDocx`、`unit-cvMdToDocxImg`、`unit-cvMdTo`、`api-rmApiServer` |
 | `src/cvMdTo.mjs` | `unit-cvMdTo`、`unit-cvMdToDocx`、`api-rmApiServer`、`api-rmApiClient` |
-| `src/addDocxToc.mjs`、`docxToc.mjs` | `unit-addDocxToc`、`unit-docxToc`、`unit-cvMdToDocx`(含 R-AV-1 之 PowerShell 腳本案) |
+| `src/addDocxToc.mjs`、`docxToc.mjs` | `unit-addDocxToc`、`unit-docxToc`、`unit-cvMdToDocx`(含 R-AV-1 之 PowerShell 腳本案、R-TPL-1 之真 Word 案) |
+| `src/templates/*`(模板)、`src/rmApiServer.mjs` 之 `templateDef` | `unit-docxToc`、`unit-cvMdToDocx`(真 Word,R-TPL-1)、`api-rmApiServer`、`api-rmApiClient`,以及凡以模板為 fixture 者(`test/tools/docxFixture.mjs`、圖高/行格線案) |
 | `src/docxKeep.mjs`、`docxXml.mjs` | `unit-docxKeep`、`unit-cvMdToDocx` |
 | `src/rmApiServer.mjs`、`rmApiClient.mjs` | `api-rmApiServer`、`api-rmApiClient` |
 | 升 w-md2html / w-html2docx | 全套 `npm test`(真 Word,經 `quiet-run --lock`) |
 
 ## 三、破壞性變更紀錄
 
-見 `README.md`〈Breaking changes〉(本輪:中介 html 不自足、內嵌圖之格式與尺寸、缺圖一律 reject 與 `allowMissingAssets` 移除、解析不到之圖 reject、`cvMdTo` 回傳自足 html、`checkDocxReady` 改 async 與 `getFpExe` 移除、硬上限之明確錯誤).
+見 `README.md`〈Breaking changes〉(前輪:中介 html 不自足、內嵌圖之格式與尺寸、缺圖一律 reject 與 `allowMissingAssets` 移除、解析不到之圖 reject、`cvMdTo` 回傳自足 html、`checkDocxReady` 改 async 與 `getFpExe` 移除、硬上限之明確錯誤;md96:`toc.titleStyle` 預設改為中性之 `報告目錄標題`、原模板移除並改附中性 `temp.docx`,見 R-TPL-1).
 
 ## 四、已知限制(不修,留待另案)
 
@@ -98,4 +112,5 @@
 - 內容非圖片但副檔名為 `.png` 之檔,Word 不報錯(w-html2docx 不偵測).
 - w-md2html:同一行多個 `<img src="">` 擲 `size(s)!==2`;單引號/無引號 `src` 不處理(上游另案).
 - 不帶 `pHYs` 且小於版心之 PNG 依 96 dpi 顯示(每像素 0.75 點),過去為 1 點(待主控裁示是否需補償,見報告).
+- w-html2docx 內建模板(未給 `fpInTemp`)含頁首頁尾,其上 `toc: true` 於真 Word 以 `Failed to add the TOC: TOC check failed (1): the cover section should have no footer` reject(2026-11-07 以 w-html2docx 1.0.48 實測,git HEAD 之 src 亦同,與 `titleStyle` 無關);`docxToc.mjs` 之 prep 層(無 Word)對內建模板可處理,故差在 Word 更新後封面節繼承頁尾.範圍外,未修,待主控裁示是否另案.
 - `test/tools/figurePages.vbs`(測試資產:以 Word 量圖與圖名之頁碼,`test/tools/imgFixture.mjs` 以 cscript 執行)仍是獨立 .vbs;因 `package.json` 無 `files` 且無 `.npmignore`,`test/` 隨 npm 包發布,該檔因而仍在發布內容中.R-AV-1 只處理 `src/` 驅動 Word 之腳本,此檔待主控裁示(改為 `execPs` 之 PowerShell 腳本,或自發布內容排除 `test/`).

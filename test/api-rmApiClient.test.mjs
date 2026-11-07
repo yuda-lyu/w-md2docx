@@ -136,7 +136,7 @@ describe('rmApiClient', function() {
             let r = await health({ host, port, token })
             assert.strict.equal(r.success, true)
             assert.strict.equal(r.tokenRequired, true)
-            assert.strict.deepEqual(r.templates, ['temp_tpc.docx'])
+            assert.strict.deepEqual(r.templates, ['temp.docx']) //套件僅附中性模板 temp.docx
         })
 
         it('host/port未給時取環境變數WMD2DOCX_HOST/WMD2DOCX_PORT', async function() {
@@ -215,14 +215,14 @@ describe('rmApiClient', function() {
 
 
         it('cvMdTo fpInTemp 以base64夾帶模板(template=request)', async function() {
-            let r = await cvMdTo({ host, port, token, fpInMd: './test/report.md', fpOutHtml, fpInTemp: './src/templates/temp_tpc.docx' })
+            let r = await cvMdTo({ host, port, token, fpInMd: './test/report.md', fpOutHtml, fpInTemp: './src/templates/temp.docx' })
             assert.strict.equal(r.template, 'request')
         })
 
         it('cvMdTo templateName 指定服務端模板(template=server), 不存在則HTTP錯誤不重試', async function() {
-            let r = await cvMdTo({ host, port, token, fpInMd: './test/report.md', fpOutHtml, templateName: 'temp_tpc.docx' })
+            let r = await cvMdTo({ host, port, token, fpInMd: './test/report.md', fpOutHtml, templateName: 'temp.docx' })
             assert.strict.equal(r.template, 'server')
-            await assert.rejects(cvMdTo({ host, port, token, fpInMd: './test/report.md', fpOutHtml, templateName: 'nope.docx' }), (e) => e === 'Conversion failed: templateName[nope.docx] does not exist (available templates: temp_tpc.docx)')
+            await assert.rejects(cvMdTo({ host, port, token, fpInMd: './test/report.md', fpOutHtml, templateName: 'nope.docx' }), (e) => e === 'Conversion failed: templateName[nope.docx] does not exist (available templates: temp.docx)')
         })
 
         it('cvMdTo token錯誤', async function() {

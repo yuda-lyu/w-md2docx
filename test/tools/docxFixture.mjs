@@ -29,7 +29,7 @@ let cover = () => para(run('測試計畫報告', { b: true, sz: 40 }), '<w:jc w:
 
 //buildDocx: 以模板之 document.xml 開頭(命名空間)與最後分節設定, 包住 bodyXml 成為 docx; sect 給字串時取代最後分節設定
 function buildDocx(bodyXml, opt = {}) {
-    let fpTemplate = opt.fpTemplate || './src/templates/temp_tpc.docx'
+    let fpTemplate = opt.fpTemplate || './src/templates/temp.docx'
     let tpl = unzipSync(new Uint8Array(fs.readFileSync(path.resolve(fpTemplate))))
     let docTpl = strFromU8(tpl['word/document.xml'])
     let head = docTpl.slice(0, docTpl.indexOf('<w:body>') + '<w:body>'.length)
@@ -43,7 +43,7 @@ function buildDocx(bodyXml, opt = {}) {
 
 
 //getSectFinal: 取模板最後之分節設定
-function getSectFinal(fpTemplate = './src/templates/temp_tpc.docx') {
+function getSectFinal(fpTemplate = './src/templates/temp.docx') {
     let tpl = unzipSync(new Uint8Array(fs.readFileSync(path.resolve(fpTemplate))))
     return strFromU8(tpl['word/document.xml']).match(/<w:sectPr\b[\s\S]*?<\/w:sectPr>/)[0]
 }

@@ -40,7 +40,7 @@ import { toErrText, retryBusy, runExclusive, assertReadable } from './utils.mjs'
  * import cvMdToDocx from 'w-md2docx/src/cvMdToDocx.mjs'
  *
  * let r = await cvMdToDocx('./test/report.md', './test/report.docx', {
- *     fpInTemp: './src/templates/temp_tpc.docx',
+ *     fpInTemp: './src/templates/temp.docx',
  *     optMd2html: {
  *         imgWidthMax: '500px',
  *     },
@@ -94,7 +94,7 @@ async function cvMdToDocx(fpInMd, fpOutDocx, opt = {}) {
     optHtml2docx = { ...optHtml2docx }
 
     //imgHeightReserveLines (未給時預設 4; 給 null 停用, 給其他值原樣交 w-html2docx 判斷, 其視無效值為不啟用)
-    //why: 行格線模板(如 temp_tpc.docx)下 Word 將段落高進位為行距之整數倍, 原圖高上限(版心高之 0.937 倍)進位後擠掉其下之圖名,
+    //why: 行格線模板(如 temp.docx)下 Word 將段落高進位為行距之整數倍, 原圖高上限(版心高之 0.937 倍)進位後擠掉其下之圖名,
     //     2026-10-10 Word 16 實測整頁高長圖 4 張與圖名皆不同頁, 預留 4 格後皆同頁; 4 = 圖區塊間之空段落 1 格 + 圖名至多 2 行(12pt 各 1 格) + 餘裕 1 格
     //     (段前段後距離、頁首頁尾高於邊界時每頁實際格數少於推算), 無行格線之模板不生效
     optHtml2docx.imgHeightReserveLines = get(optHtml2docx, 'imgHeightReserveLines', 4)

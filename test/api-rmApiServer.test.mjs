@@ -50,7 +50,7 @@ describe('rmApiServer', function() {
         assert.strict.equal(srv.settings.maxMb, 256)
         assert.strict.equal(srv.settings.maxBytes, 256 * 1024 * 1024)
         assert.strict.equal(srv.settings.dirWork, dirWork)
-        assert.strict.equal(srv.settings.templateDef, 'temp_tpc.docx')
+        assert.strict.equal(srv.settings.templateDef, 'temp.docx')
         assert.strict.equal(/src[\\/]templates$/.test(srv.settings.dirTemplates), true) //預設模板夾為套件 src/templates
         assert.strict.equal(fs.existsSync(dirWork), true) //啟動時建立工作夾
     })
@@ -81,8 +81,8 @@ describe('rmApiServer', function() {
         assert.strict.equal(r.node, process.version)
         assert.strict.equal(r.tokenRequired, true)
         assert.strict.equal(r.dirWork, dirWork)
-        assert.strict.deepEqual(r.templates, ['temp_tpc.docx'])
-        assert.strict.equal(/temp_tpc\.docx$/.test(r.templateDefault), true)
+        assert.strict.deepEqual(r.templates, ['temp.docx']) //套件僅附中性模板 temp.docx
+        assert.strict.equal(path.basename(r.templateDefault), 'temp.docx')
         assert.strict.equal(r.queue, 0)
         assert.strict.equal(typeof r.winwordProcesses, 'number')
         assert.strict.equal(r.maxBytes, 256 * 1024 * 1024)
@@ -112,7 +112,7 @@ describe('rmApiServer', function() {
         assert.strict.equal(r.name, '報告')
         assert.strict.equal(r.out, 'html')
         assert.strict.equal(r.nAssets, 1)
-        assert.strict.equal(r.template, 'default') //服務端預設模板(temp_tpc.docx)存在
+        assert.strict.equal(r.template, 'default') //服務端預設模板(temp.docx)存在
         assert.strict.equal(typeof r.ms, 'number')
         assert.strict.equal(r.docx, undefined)
         assert.strict.equal(r.html.fileName, '報告.html')
@@ -123,14 +123,14 @@ describe('rmApiServer', function() {
     })
 
     it('POST /api/convert mdBase64 與 templateName 指定服務端模板', async function() {
-        let res = await post({ mdBase64: Buffer.from('# b64', 'utf8').toString('base64'), out: 'html', templateName: 'temp_tpc.docx' })
+        let res = await post({ mdBase64: Buffer.from('# b64', 'utf8').toString('base64'), out: 'html', templateName: 'temp.docx' })
         assert.strict.equal(res.status, 200)
         let r = await res.json()
         assert.strict.equal(r.template, 'server')
     })
 
     it('POST /api/convert templateBase64 夾帶模板, 用畢刪除暫存模板', async function() {
-        let tplB64 = fs.readFileSync('./src/templates/temp_tpc.docx').toString('base64')
+        let tplB64 = fs.readFileSync('./src/templates/temp.docx').toString('base64')
         let res = await post({ md: '# t', out: 'html', templateBase64: tplB64 })
         assert.strict.equal(res.status, 200)
         let r = await res.json()
@@ -151,7 +151,7 @@ describe('rmApiServer', function() {
         assert.strict.deepEqual(await res1.json(), { success: false, error: 'md is empty: md (string) or mdBase64 is required' })
         let res2 = await post({ md: '# t', out: 'html', templateName: 'nope.docx' })
         assert.strict.equal(res2.status, 400)
-        assert.strict.deepEqual(await res2.json(), { success: false, error: 'templateName[nope.docx] does not exist (available templates: temp_tpc.docx)' })
+        assert.strict.deepEqual(await res2.json(), { success: false, error: 'templateName[nope.docx] does not exist (available templates: temp.docx)' })
         let res3 = await post({ md: '# t', out: 'html', assets: [{ path: '../x.png', base64: 'QUI=' }] })
         assert.strict.equal(res3.status, 400)
         assert.strict.deepEqual(await res3.json(), { success: false, error: 'asset.path is outside the working folder: ../x.png' })
@@ -188,7 +188,7 @@ describe('rmApiServer', function() {
         assert.strict.equal(s2.settings.host, '0.0.0.0')
         assert.strict.equal(s2.settings.token, '')
         assert.strict.equal(s2.settings.maxMb, 256)
-        assert.strict.equal(s2.settings.templateDef, 'temp_tpc.docx')
+        assert.strict.equal(s2.settings.templateDef, 'temp.docx')
         assert.strict.equal(s2.server.info.started, 0) //未啟動
         await s2.stop()
     })
@@ -204,11 +204,11 @@ describe('rmApiServer', function() {
 
     it('模板夾之Word擁有者檔(~$開頭)與非docx檔不列為可用模板, 亦不可以templateName指定', async function() {
         //可用模板之列出(health之templates、錯誤訊息)與指定(templateName)為同一集合
-        //why: Word開啟模板轉檔期間於同資料夾建~$開頭之擁有者檔(如temp_tpc.docx之~$mp_tpc.docx, 2026-10-10實測), 不得被列出或取用
+        //why: Word開啟模板轉檔期間於同資料夾建~$開頭之擁有者檔(如temp.docx之~$mp.docx, 2026-10-10實測), 不得被列出或取用
         let portTpl = 8204 //固定埠, 與本檔 8201、8202、8203 錯開
         let dirTpl = path.resolve(fdTmp, 'templates')
         fs.mkdirSync(dirTpl, { recursive: true })
-        fs.copyFileSync('./src/templates/temp_tpc.docx', path.resolve(dirTpl, 'a.docx'))
+        fs.copyFileSync('./src/templates/temp.docx', path.resolve(dirTpl, 'a.docx'))
         fs.writeFileSync(path.resolve(dirTpl, '~$a.docx'), 'owner')
         fs.writeFileSync(path.resolve(dirTpl, 'b.txt'), 'b')
         let s4 = await rmApiServer({ port: portTpl, host: '127.0.0.1', dirTemplates: dirTpl, templateDef: 'a.docx', dirWork: path.resolve(fdTmp, 'work4') })

@@ -163,8 +163,8 @@ async function runWord(fpIn, fpOut, timeout) {
  * @param {Object} [opt.titles={toc:'目錄',fig:'圖目錄',tab:'表目錄'}] 輸入三目錄之標題
  * @param {Array} [opt.frontHeadings=['摘要','ABSTRACT','Abstract']] 輸入前置章節之標題文字，文件開頭之標題與之相同者排在封面與目錄之間且不列入目錄
  * @param {Integer} [opt.maxLevels=3] 輸入目錄列出之標題層數(自正文最高之大綱階層起算)，上限9
- * @param {String} [opt.titleStyle='TPC11報告目錄(標題)'] 輸入三目錄標題之段落樣式名稱(預設為本套件所附temp_tpc.docx之樣式)，模板無此樣式時另建置中粗體樣式
- * @param {Array} [opt.headStyles=['章標題','節標題','小節標題']] 輸入承接標題粗體之段落樣式名稱(依層)，模板已有同名樣式時須為粗體
+ * @param {String} [opt.titleStyle='報告目錄標題'] 輸入三目錄標題之段落樣式名稱(預設為本套件所附temp.docx之樣式)，模板無此樣式時另建置中粗體樣式；此名稱會出現在產出docx之樣式清單，交付給業主時須為中性名稱；繁體中文版Word視「目錄標題」為內建樣式TOC Heading之本地化名稱，自訂樣式同名時會被更名為「目錄標題1」，故勿用該名稱
+ * @param {Array} [opt.headStyles=['章標題','節標題','小節標題']] 輸入承接標題粗體之段落樣式名稱(依層)，模板已有同名樣式時須為粗體；此名稱亦會出現在產出docx之樣式清單，交付給業主時須為中性名稱
  * @param {Boolean} [opt.pageNumbers=true] 輸入是否分節重編頁碼，false時只插入三目錄(各自起新頁)，不動分節與頁碼
  * @param {Boolean} [opt.keepLines=true] 輸入是否將目錄來源段落(列入目錄之標題、圖名、表名)設為段落內不分頁，使目錄之頁碼即該段落所在之頁(多行之表名跨頁時，首行留在前頁而表格在次頁，表目錄之頁碼會指向前頁)
  * @param {Boolean} [opt.keepWithObject=true] 輸入是否使圖名、表名與其圖、表同頁(與keepCaption同一規則，見docxKeep.mjs之planKeepNext)：與下段之表格或圖片、或上段之圖片同頁，上下皆有圖表時依同類圖名表名之多數位置，平手時圖名取上段、表名取下段(圖在頁底而圖名被擠到次頁時，圖目錄之頁碼會指向次頁)

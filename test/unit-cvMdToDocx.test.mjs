@@ -88,7 +88,7 @@ describe('cvMdToDocx 實轉(需Windows+Microsoft Word)', function() {
     let fpIn = './test/report.md'
     let fpOut = path.resolve(fdTmp, 'report.docx')
     let fpOutHtml = path.resolve(fdTmp, 'report.html')
-    let fpInTemp = './src/templates/temp_tpc.docx'
+    let fpInTemp = './src/templates/temp.docx'
     let rt = null
     let zip = null
     let xml = ''
@@ -210,6 +210,92 @@ describe('cvMdToDocx 實轉(需Windows+Microsoft Word)', function() {
         assert.strict.equal(x.includes(`> TOC \\o "${l0}-${l0 + 1}" \\h \\z \\u </w:instrText>`), true)
     })
 
+    //Gitea #96(使用端): toc 之 titleStyle 預設值(報告目錄標題)為中性名稱, 交付之 docx 不含他來源之樣式名
+    //note: 預設名稱不可為「目錄標題」: 繁體中文版 Word 以之為內建樣式 TOC Heading 之本地化名稱, 自訂樣式同名時被更名為「目錄標題1」(2026-11-07 Word 16 實測)
+    //      內建模板(w-html2docx)含頁首頁尾, toc:true 時封面節核對不過("the cover section should have no footer", 修改前即存在, 與樣式名稱無關), 故真 Word 之驗證用 temp.docx 與其衍生模板
+    let mkTocNameMd = () => {
+        fs.copyFileSync('./test/cocktail.svg', path.resolve(fdTmp, 'cocktail.svg'))
+        let fpMd = path.resolve(fdTmp, 'tocname.md')
+        fs.writeFileSync(fpMd, [
+            '<div pretitle style="font-size:14pt; text-align:center;">',
+            '    目錄樣式名稱',
+            '</div>',
+            '',
+            '# 第一章 圖表',
+            '',
+            '![p](cocktail.svg)',
+            '',
+            '圖n 雞尾酒',
+            '',
+            '表n 參數一覽',
+            '',
+            '| 項目 | 數值 |',
+            '|---|---|',
+            '| a | 1 |',
+            '',
+        ].join('\n'), 'utf8')
+        return fpMd
+    }
+    //getTitleStyles: 取三目錄標題段落所用之段落樣式(由 id 查名稱與定義; Word 另存後 id 會改變, 故以名稱為準)
+    let getTitleStyles = (fpDocx) => {
+        let u8 = new Uint8Array(fs.readFileSync(fpDocx))
+        let sty = readPart(u8, 'word/styles.xml')
+        let ps = listParas(readPart(u8, 'word/document.xml'))
+        let ts = ['目錄', '圖目錄', '表目錄'].map((t) => ps.find((p) => p.text === t))
+        assert.strict.equal(ts.every((p) => p), true)
+        let defs = ts.map((p) => sty.match(new RegExp(`<w:style\\b[^>]*w:styleId="${p.pStyle}"[^>]*>[\\s\\S]*?</w:style>`))[0])
+        return { sty, names: defs.map((d) => d.match(/<w:name w:val="([^"]*)"\/>/)[1]), defs, ids: [...sty.matchAll(/<w:style\b[^>]*w:styleId="([^"]+)"/g)].map((m) => m[1]) }
+    }
+
+    it('toc:true且未給titleStyle(temp.docx): 三目錄標題套用模板自有之「報告目錄標題」樣式(置中、非粗體), 模板之樣式名稱經Word轉檔後皆原名保留, 樣式id無他來源之前綴', async function() {
+        this.timeout(600000)
+        let fpMd = mkTocNameMd()
+        let fpOut = path.resolve(fdTmp, 'tocname-temp.docx')
+        let r = await cvMdToDocx(fpMd, fpOut, { fpInTemp, toc: true })
+        assert.strict.deepEqual(r.toc.lists, ['toc', 'fig', 'tab'])
+        assert.strict.deepEqual(r.toc.warns, []) //未指定titleStyle時不提示
+        let t = getTitleStyles(fpOut)
+        assert.strict.deepEqual(t.names, ['報告目錄標題', '報告目錄標題', '報告目錄標題'])
+        //模板自有之樣式: 置中、非粗體(未另建 WMdTocTitle)
+        assert.strict.equal(t.defs[0].includes('<w:jc w:val="center"/>'), true)
+        assert.strict.equal(/<w:b\/>/.test(t.defs[0]), false)
+        assert.strict.equal(t.ids.includes('WMdTocTitle'), false)
+        //模板之樣式名稱皆原名保留(與 Word 內建樣式之本地化名稱衝突者會被更名, 例「目錄標題」→「目錄標題1」)
+        let namesOf = (sty) => new Set([...sty.matchAll(/<w:name w:val="([^"]*)"\/>/g)].map((m) => m[1]))
+        let nOut = namesOf(t.sty)
+        let nTpl = namesOf(readPart(new Uint8Array(fs.readFileSync(fpInTemp)), 'word/styles.xml'))
+        assert.strict.deepEqual([...nTpl].filter((n) => !nOut.has(n)), [])
+        //樣式 id 只有 Word 自動編號(數字,或 a 起首之小寫英數,如 a0、aff4、afffff0)、Web、本套件前綴(WMd)與模板之中性前綴(Rpt)
+        assert.strict.deepEqual(t.ids.filter((id) => !/^(Rpt[\d-]+|WMd[A-Za-z0-9]+|Web|\d+|a[a-z0-9]*)$/.test(id)), [])
+    })
+
+    //Gitea #96〈驗證建議〉2(改寫): 模板只有舊名樣式(名稱不是 titleStyle 之值)而未給 titleStyle => 三目錄標題改用新建之置中粗體樣式(無舊名相容)
+    it('toc:true且未給titleStyle(模板只有舊名樣式): 三目錄標題改用新建之置中粗體「報告目錄標題」(16pt); 指定舊名者沿用模板之樣式(置中、非粗體、14pt)', async function() {
+        this.timeout(600000)
+        let fpMd = mkTocNameMd()
+        //由 temp.docx 衍生: 把「報告目錄標題」改名為「舊目錄標題」, 其餘不動
+        let files = unzipSync(new Uint8Array(fs.readFileSync(fpInTemp)))
+        let styTpl = strFromU8(files['word/styles.xml'])
+        assert.strict.equal(styTpl.includes('<w:name w:val="報告目錄標題"/>'), true)
+        files['word/styles.xml'] = strToU8(styTpl.replace('<w:name w:val="報告目錄標題"/>', '<w:name w:val="舊目錄標題"/>'))
+        let fpDer = path.resolve(fdTmp, 'old-title-style.docx')
+        fs.writeFileSync(fpDer, zipSync(files))
+        let props = (d) => ({ jc: (d.match(/<w:jc w:val="(\w+)"\/>/) || [])[1], bold: /<w:b\/>/.test(d), sz: (d.match(/<w:sz w:val="(\d+)"\/>/) || [])[1] })
+
+        let r1 = await cvMdToDocx(fpMd, path.resolve(fdTmp, 'tocname-der1.docx'), { fpInTemp: fpDer, toc: true })
+        assert.strict.deepEqual(r1.toc.warns, [])
+        let t1 = getTitleStyles(path.resolve(fdTmp, 'tocname-der1.docx'))
+        assert.strict.deepEqual(t1.names, ['報告目錄標題', '報告目錄標題', '報告目錄標題'])
+        assert.strict.deepEqual(props(t1.defs[0]), { jc: 'center', bold: true, sz: '32' })
+        assert.strict.equal(t1.defs[0].includes('w:customStyle="1"'), true)
+
+        let r2 = await cvMdToDocx(fpMd, path.resolve(fdTmp, 'tocname-der2.docx'), { fpInTemp: fpDer, toc: { titleStyle: '舊目錄標題' } })
+        assert.strict.deepEqual(r2.toc.warns, [])
+        let t2 = getTitleStyles(path.resolve(fdTmp, 'tocname-der2.docx'))
+        assert.strict.deepEqual(t2.names, ['舊目錄標題', '舊目錄標題', '舊目錄標題'])
+        assert.strict.deepEqual(props(t2.defs[0]), { jc: 'center', bold: false, sz: '28' })
+    })
+
     it('keepCaption:true: 圖片段與表名設與下段同頁, 交付之docx(由fflate寫出)可由Word開啟另存', async function() {
         this.timeout(300000)
         fs.copyFileSync('./test/cocktail.svg', path.resolve(fdTmp, 'cocktail.svg'))
@@ -321,7 +407,7 @@ describe('cvMdToDocx 實轉(需Windows+Microsoft Word)', function() {
         for (let [name, fp, opt] of [['plain', fpMd, {}], ['keep', fpMd, { keepCaption: true }], ['toc', fpMdToc, { toc: true }]]) {
             let fpOut = path.resolve(fd, `${name}.docx`)
             await cvMdToDocx(fp, fpOut, { fpInTemp, ...opt })
-            //temp_tpc.docx: A4、上下邊界72點、行距18點之行格線, 版心高697.9點即每頁38格, 預留4格之圖高上限為(38-4)×18-0.5=611.5點
+            //temp.docx: A4、上下邊界72點、行距18點之行格線, 版心高697.9點即每頁38格, 預留4格之圖高上限為(38-4)×18-0.5=611.5點
             let hs = getImgHeights(fpOut)
             assert.strict.equal(hs.length, 4, name)
             assert.strict.equal(hs.every((h) => Math.abs(h - 611.5) < 0.05), true, `${name}: ${hs}`)
@@ -359,7 +445,7 @@ describe('cvMdToDocx 圖片內嵌於docx(需Windows+Microsoft Word)', function()
     }
 
     let fd = path.resolve(fdTmpRoot, 'img')
-    let fpInTemp = path.resolve('./src/templates/temp_tpc.docx')
+    let fpInTemp = path.resolve('./src/templates/temp.docx')
     let fpMdP = path.resolve(fd, 'png.md') //4張png: md語法圖(角括號路徑)、原始<img>、相對路徑、無pHYs之小圖
     let fpMdS = path.resolve(fd, 'svg.md') //1張svg
     let scanP = null
@@ -512,7 +598,7 @@ describe('cvMdToDocx 轉檔器取得失敗與預設模板查找失敗之訊息(�
         return
     }
 
-    let fpInTemp = path.resolve('./src/templates/temp_tpc.docx')
+    let fpInTemp = path.resolve('./src/templates/temp.docx')
     let msgHint = 'w-html2docx resolves its default template from cwd, please run from the project root that contains node_modules/w-html2docx or give fpInTemp'
     let msgHintBin = 'the external executable htmlToDocx.exe of w-html2docx is not available, see the section "外部執行檔" of the README of w-html2docx for W_BIN_CACHE, W_BIN_MIRROR, W_BIN_OFFLINE and WHtml2docx.ensureBins()'
 
@@ -722,9 +808,9 @@ describe('cvMdToDocx 轉檔後處理(假轉檔器, 不需Word)', function() {
 
     it('添加目錄失敗(前提不符)時刪除本次產出之docx並reject', function() {
         this.timeout(180000)
-        let res = conv(fpWord, 'badstyle', { toc: { headStyles: ['TPC11報告目錄(標題)'] } })
+        let res = conv(fpWord, 'badstyle', { toc: { headStyles: ['報告目錄標題'] } })
         assert.strict.equal(res.r, null)
-        assert.strict.equal(res.err, 'Failed to add the TOC: Failed to prepare the TOC: the template has a style named "TPC11報告目錄(標題)" that is not bold, please specify another name with headStyles')
+        assert.strict.equal(res.err, 'Failed to add the TOC: Failed to prepare the TOC: the template has a style named "報告目錄標題" that is not bold, please specify another name with headStyles')
         assert.strict.equal(res.exists, false)
     })
 

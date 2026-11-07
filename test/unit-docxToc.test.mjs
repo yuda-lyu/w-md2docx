@@ -1,11 +1,12 @@
 import fs from 'fs'
 import assert from 'assert'
+import { unzipSync, zipSync, strFromU8, strToU8 } from 'fflate'
 import { normTocOpt, prepDocxToc, checkDocxToc } from '../src/docxToc.mjs'
 import { parts, buildDocx, getSectFinal, readPart, listParas, checkXml, simulateWordToc } from './tools/docxFixture.mjs'
 
 
 let { run, para, heading, body, pic, capFig, capTab, blank, table, cover } = parts
-let fpTplWh = './node_modules/w-html2docx/src/tmp.docx' //w-html2docx 內建模板: 無 TPC 樣式與目錄樣式
+let fpTplWh = './node_modules/w-html2docx/src/tmp.docx' //w-html2docx 內建模板: 無報告樣式(如報告目錄標題)與目錄樣式
 let escRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 
@@ -59,7 +60,7 @@ describe('docxToc', function() {
                     titles: { toc: '目錄', fig: '圖目錄', tab: '表目錄' },
                     frontHeadings: ['摘要', 'ABSTRACT', 'Abstract'],
                     maxLevels: 3,
-                    titleStyle: 'TPC11報告目錄(標題)',
+                    titleStyle: '報告目錄標題',
                     titleStyleGiven: false,
                     headStyles: ['章標題', '節標題', '小節標題'],
                     pageNumbers: true,
@@ -93,8 +94,8 @@ describe('docxToc', function() {
         })
 
         it('titleStyle 指定時記錄titleStyleGiven; headStyles 須為非空字串組成之非空陣列; 布林設定非布林值退回預設', function() {
-            let o = normTocOpt({ titleStyle: '目錄標題', headStyles: ['A', 'B'], pageNumbers: false, keepLines: 'false', replaceTocStyles: false })
-            assert.strict.equal(o.titleStyle, '目錄標題')
+            let o = normTocOpt({ titleStyle: '自訂目錄標題', headStyles: ['A', 'B'], pageNumbers: false, keepLines: 'false', replaceTocStyles: false })
+            assert.strict.equal(o.titleStyle, '自訂目錄標題')
             assert.strict.equal(o.titleStyleGiven, true)
             assert.strict.deepEqual(o.headStyles, ['A', 'B'])
             assert.strict.equal(o.pageNumbers, false)
@@ -189,7 +190,7 @@ describe('docxToc', function() {
 
         it('目錄標題使用模板之樣式; 分節時第1個目錄標題不加段前分頁, 圖目錄表目錄加; 無警告', function() {
             let ts = titlesOf(rStd.ps)
-            assert.strict.deepEqual(ts.map((p) => p.pStyle), ['TPC11', 'TPC11', 'TPC11'])
+            assert.strict.deepEqual(ts.map((p) => p.pStyle), ['Rpt11', 'Rpt11', 'Rpt11']) //temp.docx 之「報告目錄標題」(id Rpt11)
             assert.strict.deepEqual(ts.map((p) => p.pageBreakBefore), [false, true, true])
             assert.strict.deepEqual(rStd.info.warns, [])
         })
@@ -298,7 +299,7 @@ describe('docxToc', function() {
         })
 
         it('replaceTocStyles:false: 沿用模板既有之目錄樣式, 僅補建缺少者', function() {
-            let styTpl = readPart(new Uint8Array(fs.readFileSync('./src/templates/temp_tpc.docx')), 'word/styles.xml')
+            let styTpl = readPart(new Uint8Array(fs.readFileSync('./src/templates/temp.docx')), 'word/styles.xml')
             let r = prep(cover() + bodyStd, { replaceTocStyles: false })
             for (let n of ['toc 1', 'toc 2', 'toc 3', 'table of figures']) {
                 assert.strict.equal(styleOf(r.sty, n), styleOf(styTpl, n), n)
@@ -312,10 +313,11 @@ describe('docxToc', function() {
             let r = prep(cover() + bodyStd, {}, { fpTemplate: fpTplWh })
             assert.strict.deepEqual(r.info.warns, [])
             assert.strict.deepEqual(titlesOf(r.ps).map((p) => p.pStyle), ['WMdTocTitle', 'WMdTocTitle', 'WMdTocTitle'])
-            assert.strict.equal(styleOf(r.sty, 'TPC11報告目錄(標題)').includes('<w:jc w:val="center"/>'), true)
-            let r2 = prep(cover() + bodyStd, { titleStyle: '目錄標題' }, { fpTemplate: fpTplWh })
-            assert.strict.deepEqual(r2.info.warns, ['the template has no paragraph style named "目錄標題", a centered bold style is created for the TOC titles'])
-            assert.strict.equal(styleOf(r2.sty, '目錄標題').includes('w:styleId="WMdTocTitle"'), true)
+            assert.strict.equal(styleOf(r.sty, '報告目錄標題').includes('<w:jc w:val="center"/>'), true)
+            assert.strict.equal(/<w:b\/>/.test(styleOf(r.sty, '報告目錄標題')), true)
+            let r2 = prep(cover() + bodyStd, { titleStyle: '自訂目錄標題' }, { fpTemplate: fpTplWh })
+            assert.strict.deepEqual(r2.info.warns, ['the template has no paragraph style named "自訂目錄標題", a centered bold style is created for the TOC titles'])
+            assert.strict.equal(styleOf(r2.sty, '自訂目錄標題').includes('w:styleId="WMdTocTitle"'), true)
         })
 
         it('目錄項目字型沿用正文第1個標題之字型, 標題無字型時不指定', function() {
@@ -334,7 +336,7 @@ describe('docxToc', function() {
             ex(cover() + para('<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> TOC \\o "1-3" </w:instrText></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r>') + bodyStd, {}, /^the document already has a table of contents field/)
             ex(cover() + para('<w:r><w:pict><v:shape><v:textbox><w:txbxContent><w:p><w:r><w:t>框</w:t></w:r></w:p></w:txbxContent></v:textbox></v:shape></w:pict></w:r>') + bodyStd, {}, /^text boxes are not supported$/)
             ex(cover() + bodyStd + body('表 1 之參數如下所述。'), {}, /^the numbers of the captions labeled 表 are not consecutive from 1 in document order \(1,2,1\.\.\.\)/)
-            ex(cover() + bodyStd, { headStyles: ['TPC11報告目錄(標題)'] }, /^the template has a style named "TPC11報告目錄\(標題\)" that is not bold, please specify another name with headStyles$/)
+            ex(cover() + bodyStd, { headStyles: ['報告目錄標題'] }, /^the template has a style named "報告目錄標題" that is not bold, please specify another name with headStyles$/)
             ex(cover() + bodyStd.replace(capFig('圖2 流程'), para('<w:r><w:t>圖2</w:t><w:tab/><w:t xml:space="preserve"> 流程</w:t></w:r>')), {}, /^the text run of the caption number contains elements other than text: /)
         })
 
@@ -359,6 +361,112 @@ describe('docxToc', function() {
                 assert.strict.deepEqual(checkXml(r.doc), [])
                 assert.strict.deepEqual(checkXml(r.sty), [])
             }
+        })
+
+        //Gitea #96(使用端): 未給 titleStyle 時三目錄標題用中性名稱「報告目錄標題」, 產出 docx 之樣式 id 只有 Word 自動編號、Web、本套件前綴(WMd)與模板之中性前綴(Rpt)
+        it('未給titleStyle(temp.docx與內建模板): 三目錄標題套用「報告目錄標題」樣式, 樣式id無他來源之前綴', function() {
+            let styleNameOf = (sty, id) => ((sty.match(new RegExp(`<w:style\\b[^>]*w:styleId="${id}"[^>]*>[\\s\\S]*?<w:name w:val="([^"]*)"/>`)) || [])[1] || '')
+            for (let [name, fixtureOpt] of [['temp.docx', {}], ['builtin', { fpTemplate: fpTplWh }]]) {
+                let r = prep(cover() + bodyStd, {}, fixtureOpt)
+                assert.strict.deepEqual(r.info.warns, [], name)
+                let ts = titlesOf(r.ps)
+                assert.strict.equal(ts.length, 3, name)
+                assert.strict.deepEqual(ts.map((p) => styleNameOf(r.sty, p.pStyle)), ['報告目錄標題', '報告目錄標題', '報告目錄標題'], name)
+                let ids = [...r.sty.matchAll(/<w:style\b[^>]*w:styleId="([^"]+)"/g)].map((m) => m[1])
+                let foreign = ids.filter((id) => !/^(Rpt[\d-]+|WMd[A-Za-z0-9]+|Web|\d+|a[a-z0-9]*)$/.test(id))
+                assert.strict.deepEqual(foreign, [], name)
+            }
+        })
+
+        it('模板只有舊名樣式(名稱不是titleStyle之值)而未給titleStyle: 不沿用該樣式(無舊名相容), 改建「報告目錄標題」置中粗體樣式並套用於三目錄標題, 不提示', function() {
+            //模擬使用端舊模板: 把 temp.docx 之「報告目錄標題」改名為其他名稱, 其餘不動
+            let u8Tpl = new Uint8Array(fs.readFileSync('./src/templates/temp.docx'))
+            let files = unzipSync(u8Tpl)
+            let styTpl = strFromU8(files['word/styles.xml'])
+            assert.strict.equal(styTpl.includes('<w:name w:val="報告目錄標題"/>'), true)
+            files['word/styles.xml'] = strToU8(styTpl.replace('<w:name w:val="報告目錄標題"/>', '<w:name w:val="舊目錄標題"/>'))
+            let fpTplOld = './test/_tmp/unit-docxToc/old-title-style.docx'
+            fs.mkdirSync('./test/_tmp/unit-docxToc', { recursive: true })
+            fs.writeFileSync(fpTplOld, zipSync(files))
+            try {
+                let r = prep(cover() + bodyStd, {}, { fpTemplate: fpTplOld })
+                assert.strict.deepEqual(r.info.warns, [])
+                assert.strict.deepEqual(titlesOf(r.ps).map((p) => p.pStyle), ['WMdTocTitle', 'WMdTocTitle', 'WMdTocTitle'])
+                let created = styleOf(r.sty, '報告目錄標題') //新建之樣式: 置中粗體, 且確有套用於三目錄標題(上一行之 WMdTocTitle)
+                assert.strict.equal(created.includes('w:styleId="WMdTocTitle"'), true)
+                assert.strict.equal(created.includes('<w:jc w:val="center"/>') && /<w:b\/>/.test(created), true)
+                //指定該名稱者仍沿用模板之樣式
+                let r2 = prep(cover() + bodyStd, { titleStyle: '舊目錄標題' }, { fpTemplate: fpTplOld })
+                assert.strict.deepEqual(titlesOf(r2.ps).map((p) => p.pStyle), ['Rpt11', 'Rpt11', 'Rpt11'])
+                assert.strict.deepEqual(r2.info.warns, [])
+            }
+            finally {
+                fs.rmSync('./test/_tmp/unit-docxToc', { recursive: true, force: true, maxRetries: 10, retryDelay: 300 })
+            }
+        })
+
+    })
+
+    describe('temp.docx(本套件所附之中性模板)', function() {
+
+        let files = unzipSync(new Uint8Array(fs.readFileSync('./src/templates/temp.docx')))
+        let txt = (k) => strFromU8(files[k])
+
+        //Gitea #96(使用端): 交付之 docx 不帶業主樣式名; 以「自訂段落樣式名稱之清單」與「樣式 id 之前綴」兩者限定模板內容(README〈Templates〉之表)
+        it('樣式名稱與 id 為中性: 自訂段落樣式僅 README 所列之報告樣式與 Word 通用樣式, 樣式 id 僅 Word 自動編號、Web 或 Rpt 前綴', function() {
+            let sty = txt('word/styles.xml')
+            let customParas = []
+            let ids = []
+            for (let m of sty.matchAll(/<w:style\b([^>]*)>([\s\S]*?)<\/w:style>/g)) {
+                ids.push((m[1].match(/w:styleId="([^"]+)"/) || [])[1])
+                if (/w:customStyle="1"/.test(m[1]) && /w:type="paragraph"/.test(m[1])) {
+                    customParas.push((m[2].match(/<w:name w:val="([^"]*)"\/>/) || [])[1])
+                }
+            }
+            let expected = [
+                '封面主標題', '封面次標題', '封面委託單位', '封面執行單位', '封面日期', '封面作者',
+                '摘要主標題', '摘要作者', '摘要標題', '摘要與本文',
+                '報告目錄標題',
+                '圖本身', '圖標題', '圖表註解(單個)', '圖表註解(多個)',
+                '表標題', '表頭', '表內容', '表內容純數字',
+                '參考文獻', '數學公式',
+                '項目1', '項目2', '項目3', '項目4', '項目5', '項目6', '項目7',
+                '表格文字', '(1).內文', //Word 通用樣式(非報告樣式)
+            ]
+            let generic = customParas.filter((n) => !expected.includes(n))
+            assert.strict.deepEqual(expected.filter((n) => !customParas.includes(n)), []) //清單內之樣式皆在模板內
+            assert.strict.deepEqual(generic, []) //模板內無清單外之自訂段落樣式
+            assert.strict.deepEqual(ids.filter((id) => !/^(Rpt[\d-]+|Web|\d+|a[a-z0-9]*)$/.test(id)), [])
+            //report 樣式之 id 與名稱一一對應(例: 報告目錄標題 = Rpt11), 且參照(pStyle、link、next、basedOn)皆指向存在之 id
+            assert.strict.equal(new RegExp('w:styleId="Rpt11"[^>]*>\\s*<w:name w:val="報告目錄標題"/>').test(sty), true)
+            let used = [...(sty + txt('word/numbering.xml') + txt('word/document.xml')).matchAll(/<w:(?:pStyle|link|next|basedOn) w:val="([^"]+)"/g)].map((m) => m[1])
+            assert.strict.deepEqual([...new Set(used)].filter((id) => !ids.includes(id)), [])
+        })
+
+        //Word 對繁體中文版內建樣式 TOC Heading 之本地化名稱為「目錄標題」, 自訂樣式同名時被更名(見 src/docxToc.mjs 之 note); 此處限定預設名稱不是該名稱, 真 Word 之驗證見 unit-cvMdToDocx.test.mjs
+        it('titleStyle 預設不為「目錄標題」(Word 內建樣式 TOC Heading 之繁體中文名稱)', function() {
+            assert.strict.notEqual(normTocOpt().titleStyle, '目錄標題')
+            assert.strict.equal(new RegExp('<w:name w:val="目錄標題"/>').test(txt('word/styles.xml')), false)
+        })
+
+        it('文件屬性與附加模板為空: 作者、最後修改者、附加模板名稱與其外部連結皆無', function() {
+            assert.strict.equal(/<dc:creator><\/dc:creator>/.test(txt('docProps/core.xml')), true)
+            assert.strict.equal(/<cp:lastModifiedBy><\/cp:lastModifiedBy>/.test(txt('docProps/core.xml')), true)
+            assert.strict.equal(/<Template>|<Company>[^<]/.test(txt('docProps/app.xml')), false)
+            assert.strict.equal(txt('word/settings.xml').includes('attachedTemplate'), false)
+            assert.strict.equal(files['word/_rels/settings.xml.rels'], undefined)
+            for (let k of Object.keys(files)) {
+                if (/\.rels$/.test(k)) {
+                    assert.strict.equal(txt(k).includes('TargetMode="External"'), false, k)
+                }
+            }
+        })
+
+        it('排版為A4、上下邊界72點、行格線18點(每頁38格)', function() {
+            let sect = txt('word/document.xml').match(/<w:sectPr\b[\s\S]*?<\/w:sectPr>/)[0]
+            assert.strict.equal(sect.includes('<w:pgSz w:w="11906" w:h="16838"/>'), true)
+            assert.strict.equal(/<w:pgMar w:top="1440" [^>]*w:bottom="1440"/.test(sect), true)
+            assert.strict.equal(sect.includes('<w:docGrid w:type="lines" w:linePitch="360"/>'), true)
         })
 
     })

@@ -4,7 +4,7 @@
 
 ## Word 與測試(2026-10-29)
 
-- **Word 為單一實例,不可由 mocha `--parallel` 之不同檔同時調用**:兩個檔同時轉檔時,後到者得 `com_error -2147418111 接收者已拒絕這個呼叫`.失敗後遺留 WINWORD(視窗標題為 `wmd2docx_<pid>_<ts>_<亂數>.html - Word`,持有 4 份文件、COM 一律回 -2147418111,graceful 關閉失敗)、`src/templates/~$mp_tpc.docx` 擁有者檔、系統暫存夾之中介 html、`test/_tmp/...` 鎖死(`EPERM`/`EBUSY`),之後所有 Word 測試連鎖失敗.處置:以視窗標題確認為自己之殘留(標題含自己 worker 之 pid 與時間戳)後 `taskkill /F /PID <pid> /T`,回驗 WINWORD/htmlToDocx/cscript 皆消失,再刪 `~$mp_tpc.docx`、暫存 html、`test/_tmp` 殘夾.預防:新增之 Word 長測試併入 `unit-cvMdToDocx.test.mjs` 同檔依序,不另開檔(R-TEST-1).
+- **Word 為單一實例,不可由 mocha `--parallel` 之不同檔同時調用**:兩個檔同時轉檔時,後到者得 `com_error -2147418111 接收者已拒絕這個呼叫`.失敗後遺留 WINWORD(視窗標題為 `wmd2docx_<pid>_<ts>_<亂數>.html - Word`,持有 4 份文件、COM 一律回 -2147418111,graceful 關閉失敗)、`src/templates/~$mp.docx` 擁有者檔、系統暫存夾之中介 html、`test/_tmp/...` 鎖死(`EPERM`/`EBUSY`),之後所有 Word 測試連鎖失敗.處置:以視窗標題確認為自己之殘留(標題含自己 worker 之 pid 與時間戳)後 `taskkill /F /PID <pid> /T`,回驗 WINWORD/htmlToDocx/cscript 皆消失,再刪 `~$mp.docx`、暫存 html、`test/_tmp` 殘夾.預防:新增之 Word 長測試併入 `unit-cvMdToDocx.test.mjs` 同檔依序,不另開檔(R-TEST-1).
 - `quiet-run --lock` 等鎖時完全沒有 log 檔(要等取得鎖才建檔);他套件長時間持鎖時一次等候可達 6 分鐘以上,故 Word 實驗應合併成單次取鎖,不要拆小.
 - **稀疏檔測大小上限**:`fs.openSync` + `fs.ftruncateSync(h, n)` 產 2.2 GB 檔瞬間完成(0 ms)、不佔磁碟(`df` 不變),`fs.statSync().size` 即為 n,`fs.readFileSync` 即擲 `ERR_FS_FILE_TOO_LARGE`;`unlink` 亦瞬間.`test/tools/fakeHtml2docx.mjs` 之 `size` 選項(環境變數 `FAKE_HTML2DOCX_SIZE`)即以此產出假 docx,測 2 GiB 與 base64 字串上限皆不實寫.
 - 假轉檔器(`runWithFakeHtml2docx`)另記錄所收之中介 html(`globalThis.fakeHtml2docxHtml`),可 `reject` 指定字串;假的 `WHtml2docx` 無 `ensureBins` 屬性,故用假轉檔器之子程序不可呼叫 `checkDocxReady`(health).
@@ -37,6 +37,15 @@
 - 720 張 1600×900 雜訊 PNG(上方 112 列隨機位元組,每張 545,189 B,合計 392,535,821 B),`cvMdToDocx(md, docx, { fpInTemp, keepCaption: true })`,**預設堆積**(4288 MB):成功,417.1 s(含 keepCaption 4.2 s;md→html 未單獨量測,審計 E3a 為 1.4 s;扣除後 Word 階段約 412 s,每張約 0.57 s);中介 html 169,283 B;docx 392,757,546 B;720 個 drawing 皆 `r:embed`、`word/media` 720、`r:link` 0、External 0,依序之媒體位元組皆等於來源圖;顯示尺寸皆 5274310×2966799 EMU;node 峰值 RSS 約 1307 MB(取樣)、`resourceUsage().maxRSS` 1681 MB(含 keepCaption 之 `unzipSync`/`zipSync`),WINWORD 峰值 534 MB.修前(審計):409 MB 直接 `Invalid string length`、154 MB 預設堆積 OOM 中止(離開碼 134).
 - 腳本在 `EV/scripts/`(`gen-imgs.mjs`、`mk-md.mjs`、`bulk-run.mjs`、`bulk-verify.mjs`),實測用完即刪大圖與 docx;實測時以 `src/` 快照執行,實測期間另跑變異測試於複本.
 - 改前改後(同輪,`cmp-report.mjs`:改前=git HEAD 之 src 配升級後依賴,改後=現 src):`test/report.md`(含 `cocktail.svg`)圖數 1/1、顯示 415.30×415.30 pt 相同,docx 100,916 → 200,787 B(svg + Word 產 2500 px 預覽 png,取代 1067 px png,**檔案變大**);混合圖 5/5,除不帶 pHYs 之小 PNG(39.75 → 30.00 pt)外顯示尺寸差 ≤ 0.5 pt.
+
+## 模板與樣式名稱(2026-11-07,Gitea #96,規則 R-TPL-1)
+
+- **繁體中文版 Word 會更名與內建樣式本地化名稱同名之自訂樣式**:「目錄標題」是內建樣式 `TOC Heading` 之本地化名稱.模板內自訂樣式取此名,經 w-html2docx(Word 開檔轉檔)後即成「目錄標題1」,故 `idOf('目錄標題')` 找不到、模板自有之樣式不被沿用,而套件另建之同名樣式於 `addDocxToc` 之 Word 另存時再被更名為「目錄標題2」.檔案內(`styles.xml`)的名稱不會預先出現衝突,**只有經 Word 轉檔後才看得到**,故預設樣式名稱須以真 Word 驗證.偵測法:比對模板全部樣式名稱與 Word 產出 docx 之樣式名稱,模板有而產出無者即被更名(`names-survive` 式比對,已併入 `unit-cvMdToDocx` 之真 Word 案);本模板 137 個樣式(86 個自訂)中僅「目錄標題」被更名,其餘 27 個報告樣式名皆保留.
+- **更名樣式名稱的做法**:`styles.xml` 的 `<w:name w:val>` 先依對照表換名(字元連結樣式為「<名稱> 字元」),再把 `styles.xml`、`numbering.xml`、`document.xml` 內剩餘之舊前綴(皆為 id 與其參照:`styleId`、`basedOn`、`next`、`link`、`pStyle`)整批換為 `Rpt`;驗證是把對照表與前綴反向套回後與原檔逐字相同,其他部件逐位元組相同.經此作法不動任何排版屬性.
+- **舊模板含業主與個人資訊之處**:不只樣式名稱,`word/_rels/settings.xml.rels` 有 `attachedTemplate` 外部連結(含本機路徑與計畫名)並由 `settings.xml` 以 `<w:attachedTemplate r:id>` 參照,`docProps/core.xml` 有作者與最後修改者,`docProps/app.xml` 有套用範本名稱.去識別時須整批清,只改樣式名稱不夠;驗收以「全部部件掃描業主字樣、個人名、本機路徑、外部連結」為準.
+- **內建模板 + `toc: true` + 真 Word 會被拒**:w-html2docx 內建模板(1.0.48)含頁首頁尾,轉出之 docx 末節帶 `headerReference`/`footerReference`(even/default/first),`addDocxToc` 於 Word 更新後核對時回 `TOC check failed (1): the cover section should have no footer`.用 git HEAD 之 src 複本(置於 repo 之 `./tmp/` 下,bare import 由 repo 根 `node_modules` 解析,不需 junction)實測相同,與 `titleStyle` 無關,屬修改前即有之限制.真 Word 之 toc 案故用 `temp.docx` 或其衍生模板,內建模板只在 prep 層(無 Word)測.
+- **衍生「舊名樣式」模板的測法**:不附任何帶舊名之模板檔,測試內以 fflate 取 `temp.docx`、把 `styles.xml` 的 `<w:name w:val="報告目錄標題"/>` 換為其他名稱再寫到 `test/_tmp/<案名>/`,即得「只有舊名樣式」之模板;`prep` 層與真 Word 層皆可用.
+- **以 git HEAD 之 src 複本做「修改前」對照**:`git archive HEAD src | tar -x -C ./tmp/<夾>`,複本內之 `import` 由 `./tmp/<夾>` 往上找到 repo 根之 `node_modules`,探測腳本以環境變數指定 `SRC`;不用 `git stash`/`checkout`.
 
 ## 其他
 

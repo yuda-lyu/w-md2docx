@@ -44,7 +44,7 @@ async function test() {
     let fpIn = `./test/report.md`
     let fpOut = `./test/report.docx`
     let opt = {
-        fpInTemp: './src/templates/temp_tpc.docx', //docx模板, 未給則用w-html2docx內建模板
+        fpInTemp: './src/templates/temp.docx', //docx模板, 未給則用w-html2docx內建模板
         optMd2html: {
             imgWidthMax: '500px',
         },
@@ -91,7 +91,7 @@ console.log(r)
 import WMd2docx from 'w-md2docx/src/WMd2docx.mjs'
 
 let r = await WMd2docx.cvMdToDocx('./test/report.md', './test/report.docx', {
-    fpInTemp: './src/templates/temp_tpc.docx',
+    fpInTemp: './src/templates/temp.docx',
     toc: true, //or settings, e.g. { labels: { fig: 'Figure', tab: 'Table' }, titles: { toc: 'Contents', fig: 'List of Figures', tab: 'List of Tables' } }
 })
 console.log(r.toc)
@@ -108,6 +108,8 @@ console.log(r.toc)
 - Word is driven through COM by Windows PowerShell 5.1 (`powershell.exe`, built into Windows), so the TOC needs `Windows`, `Microsoft Word` and `powershell.exe`. The script is passed on the command line (`-EncodedCommand`) and is never written to a file, because a stand-alone script file may be quarantined by antivirus software as a false positive. The paths of the docx are passed through the environment variables `W_MD2DOCX_SRC` and `W_MD2DOCX_DST`, which are set only while Word is being driven. A machine that blocks PowerShell scripts through Constrained Language Mode (AppLocker, WDAC) can not drive Word this way.
 - When an update times out, `powershell.exe` is ended with its child processes, but the `WINWORD` process started through COM is not one of them and may remain, so it has to be ended manually.
 - The TOC options `keepLines` and `keepWithObject` (default `true`) apply the same rules as `keepCaption` below to the captions, and `keepLines` also to the listed headings.
+- The names given by `titleStyle` (default `報告目錄標題`, the style of the three TOC titles) and `headStyles` (default `章標題`/`節標題`/`小節標題`) appear in the style list of the produced docx, so use neutral names when the docx is delivered to a client. When the template has no style of that name, the package creates one (centered and bold for `titleStyle`, bold for `headStyles`). `temp.docx` (see Templates below) has `報告目錄標題`, so the three TOC titles use its own style, and the three heading styles are created.
+- Do not name a style `目錄標題`: Word in Traditional Chinese uses it as the local name of its built-in style `TOC Heading`, so a style of your own with that name is renamed `目錄標題1` (the style of a template is then not found, and one the package creates is renamed too).
 
 #### Keep captions with figures and tables:
 > Give `keepCaption: true` (or `{ labels }`) to `cvMdToDocx`, `cvMdTo` or `rmApiClient.cvMdTo` to keep each caption on the same page as its figure or table, with or without a TOC. It only changes paragraph properties after the conversion, so Word is not called again.
@@ -140,10 +142,10 @@ console.log(r.keepCaption)
   - The service still limits a request (the assets and the template it carries) to `maxMb`.
 
 #### Tall figures and captions:
-> With a template that has a line grid (Word: Layout > Page Setup > Document Grid > Specify line grid only, as `temp_tpc.docx`), Word rounds the height of each paragraph up to whole grid lines, so a figure as tall as the page pushes its caption to the next page. `cvMdToDocx` (and so `cvMdTo` and the service) therefore passes `imgHeightReserveLines: 4` to `w-html2docx` unless `optHtml2docx` gives it. The height of a figure is limited to leave 4 grid lines below it: an empty paragraph between figure blocks (such as `<div data-for="br"></div>` written in the Markdown), a caption of up to 2 lines of 12pt text and 1 line of margin.
+> With a template that has a line grid (Word: Layout > Page Setup > Document Grid > Specify line grid only, as `temp.docx`), Word rounds the height of each paragraph up to whole grid lines, so a figure as tall as the page pushes its caption to the next page. `cvMdToDocx` (and so `cvMdTo` and the service) therefore passes `imgHeightReserveLines: 4` to `w-html2docx` unless `optHtml2docx` gives it. The height of a figure is limited to leave 4 grid lines below it: an empty paragraph between figure blocks (such as `<div data-for="br"></div>` written in the Markdown), a caption of up to 2 lines of 12pt text and 1 line of margin.
 ```alias
 let r = await WMd2docx.cvMdToDocx('./test/report.md', './test/report.docx', {
-    fpInTemp: './src/templates/temp_tpc.docx',
+    fpInTemp: './src/templates/temp.docx',
     optHtml2docx: {
         imgHeightReserveLines: 6, //default 4, null to disable
     },
@@ -151,10 +153,28 @@ let r = await WMd2docx.cvMdToDocx('./test/report.md', './test/report.docx', {
 })
 ```
 
-- The limit lets a figure and its caption fit in one page, and `keepCaption` (or `toc`) keeps them together. With `temp_tpc.docx` (38 grid lines of 18pt a page), the tallest figure becomes (38 - 4) × 18 - 0.5 = 611.5pt instead of about 654pt.
+- The limit lets a figure and its caption fit in one page, and `keepCaption` (or `toc`) keeps them together. With `temp.docx` (38 grid lines of 18pt a page), the tallest figure becomes (38 - 4) × 18 - 0.5 = 611.5pt instead of about 654pt.
 - Give a larger number for larger or longer captions: a line of 14pt `標楷體` takes 2 grid lines. Paragraph spacing before or after, and a header or footer taller than the margin, take more room, hence the line of margin.
 - `imgRatioHeightMax` of `optHtml2docx` still applies on top of it (0.95 gives about 581pt), so drop it if it was set only to make room for captions.
 - Give `null` to keep the default maximum height of `w-html2docx` (0.937 of the content height). The setting has no effect with a template without a line grid, such as the built-in template of `w-html2docx`, see `imgHeightReserveLines` of `w-html2docx` for the exact conditions.
+
+#### Templates:
+> `src/templates/temp.docx` is the template that ships with the package: the default template of `rmApiServer` (`templateDef`) and the one the examples use. It is an A4 template with a line grid (38 lines of 18pt a page), and its style names carry no name of an owner or a project, so a docx made from it can be delivered to any client. The styles of a template are listed in the style list of every docx made from it, so when you make your own template, name its styles neutrally too.
+
+| Style name | Style id | Use |
+|---|---|---|
+| `封面主標題` `封面次標題` `封面委託單位` `封面執行單位` `封面日期` `封面作者` | `Rpt01` … `Rpt06` | cover |
+| `摘要主標題` `摘要作者` `摘要標題` | `Rpt07` `Rpt08` `Rpt09` | abstract |
+| `摘要與本文` | `Rpt10` | abstract and body text |
+| `報告目錄標題` | `Rpt11` | the three TOC titles (default `titleStyle`) |
+| `圖本身` `圖標題` | `Rpt12-` `Rpt13-` | figure and its caption |
+| `圖表註解(單個)` `圖表註解(多個)` | `Rpt14-1-` `Rpt14-2-` | note below a figure or table (one / several) |
+| `表標題` `表頭` `表內容` `表內容純數字` | `Rpt15-` … `Rpt18-` | table caption, header, cells, numeric cells |
+| `參考文獻` `數學公式` | `Rpt19` `Rpt20` | references, formulas |
+| `項目1` … `項目7` | `Rpt211` `Rpt222` `Rpt233` `Rpt244` `Rpt255` `Rpt266` `Rpt277` | numbered items, level 1 to 7 |
+
+- The ids end with the number the style had in the template that the package shipped before (`01` … `27`), whose style names were the same names with a three-letter prefix of a former owner, the number and the word `報告` in front (for example `<prefix>01報告封面(主標題)`), and the character-linked styles with the suffix ` 字元`. `temp.docx` keeps the page layout, fonts and paragraph formats of that template. Every style name of `temp.docx` is kept by Word when it converts (checked by the tests).
+- The properties of the document (author, last modified by, the name of the attached template and its link) are empty, and `temp.docx` has no attached template.
 
 ## Breaking changes
 
@@ -167,3 +187,5 @@ Changes after `1.0.18`, together with the dependencies `w-md2html` `^1.1.12` and
 5. **`cvMdTo` returns a self-contained html.** With `out: 'both'` the html is no longer the intermediate html of the docx (which would point into the work folder that is deleted afterwards): it is produced by `w-md2html` with the pictures embedded as base64 and is identical to `out: 'html'`. With `out: 'html'` or `'both'`, `optMd2html.imgConvertToBase64: false` is ignored. The html is produced before the docx, so too large or missing pictures reject without starting Word.
 6. **The diagnosis of the converter changed.** `checkDocxReady()` of `src/utils.mjs` returns a Promise and `getFpExe()` is removed. `exeFound` and `exePath` (also of `GET /api/health`) tell whether `htmlToDocx.exe` is ready in the cache of `w-html2docx` (`ensureBins({ offline: true, mirror: '' })`: the cache only, no download, a hit is verified), no longer whether it lies in `src/` of the current working directory. A failure to obtain the converter rejects with `[E_…]` and the pointer to the README of `w-html2docx` instead of the old hint about downloading from the working directory.
 7. **New errors at the hard limits**, see above: a docx over 2 GiB - 1 bytes for `keepCaption` and `toc`, and a result over 401,866,734 bytes for `cvMdTo` and the service (before, `ERR_FS_FILE_TOO_LARGE` or `ERR_STRING_TOO_LONG` without the cause).
+8. **The default `titleStyle` of `toc` is now `報告目錄標題`** (a neutral name, like the default `headStyles`). Before, the default was the TOC-title style of the template that the package shipped before, whose name began with the prefix of a former owner, so every docx made with `toc` and no `titleStyle` listed that name in its style list. A template that has no style named `報告目錄標題` (that includes your copy of the earlier template, which has only the old style) now gets a created centered bold 16pt style for the three TOC titles, where the old style was centered, regular, 14pt. To keep the old look, give `titleStyle` the full name of the old style. A template that has `報告目錄標題`, or a `titleStyle` that you give, is not affected. There is no fallback to the old name.
+9. **The earlier template file is removed, and the package ships `temp.docx` instead.** `temp.docx` is the default template of `rmApiServer` (`templateDef`, so the service now lists `temp.docx` only) and the one every example uses. It has the same layout (page, grid, fonts and paragraph formats) with neutral style names and ids (see Templates above), and its document properties and attached-template link are empty. A client that asks the service for the earlier template by `templateName`, or relies on its style names, has to change; whoever wants the old look keeps a copy of that template of their own and gives its path as `fpInTemp` (or `templateBase64`) and the name of its title style as `titleStyle`.

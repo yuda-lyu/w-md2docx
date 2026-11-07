@@ -9,7 +9,7 @@ async function test() {
     let fpIn = `./test/report.md`
     let fpOut = `./test/report.docx`
     let opt = {
-        fpInTemp: './src/templates/temp_tpc.docx', //docx模板, 未給則用w-html2docx內建模板
+        fpInTemp: './src/templates/temp.docx', //docx模板, 未給則用w-html2docx內建模板
         optMd2html: {
             imgWidthMax: '500px',
         },
