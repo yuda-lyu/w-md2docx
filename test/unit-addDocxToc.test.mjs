@@ -1,16 +1,15 @@
 import fs from 'fs'
-import os from 'os'
 import path from 'path'
-import crypto from 'crypto'
 import assert from 'assert'
 import addDocxToc, { psScript, execPs, fromClixml } from '../src/addDocxToc.mjs'
-import hasWord from './tools/hasWord.mjs'
 import { parts, buildDocx, getSectFinal } from './tools/docxFixture.mjs'
+import { sha, nTmpToc, bodyWord, snapPs1 } from './tools/tocFixture.mjs'
 
 
-let { run, para, heading, body, capTab, table, cover } = parts
+let { run, para, body, cover } = parts
 
 
+//調用 Word 之〈Word更新〉案在 unit-cvMdToDocx.test.mjs〈addDocxToc Word更新〉(規則帳本 R-TEST-1: Word 不可由 mocha --parallel 之不同檔同時調用), 本檔不啟動 Word
 describe('addDocxToc', function() {
 
     //check, Word 只存在於 Windows
@@ -22,20 +21,6 @@ describe('addDocxToc', function() {
     }
 
     let fdTmp = path.resolve('./test/_tmp/unit-addDocxToc')
-    let sha = (fp) => crypto.createHash('sha256').update(fs.readFileSync(fp)).digest('hex')
-    let nTmpToc = () => fs.readdirSync(os.tmpdir()).filter((v) => v.startsWith('wmd2docx_toc_')).length
-
-    //bodyWord: 交 Word 開啟之正文(不含僅供結構判斷之 pic 標記): 章 2、節 1、表 2
-    let bodyWord = [
-        heading('第一章 緒論', 0, { pb: true }),
-        body('內容。'),
-        heading('1.1 背景', 1),
-        capTab('表1 參數一覽'),
-        table(),
-        heading('第二章 方法', 0, { pb: true }),
-        capTab('表2 結果'),
-        table('表2 表格內之文字'),
-    ].join('')
 
     before(function() {
         fs.mkdirSync(fdTmp, { recursive: true })
@@ -44,24 +29,6 @@ describe('addDocxToc', function() {
     after(function() {
         fs.rmSync(fdTmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 })
     })
-
-    //scanPs1: 掃描(非遞迴)資料夾內之 .ps1, 供檢查腳本未落地; 套件目錄另遞迴(略過 node_modules、.git、dist、docs、tmp 與 test/_tmp)
-    let scanPs1 = (fd, deep) => {
-        let rs = []
-        for (let d of fs.readdirSync(fd, { withFileTypes: true })) {
-            let fp = path.join(fd, d.name)
-            if (d.isDirectory()) {
-                if (deep && !['node_modules', '.git', 'dist', 'docs', 'tmp', '_tmp'].includes(d.name)) {
-                    rs.push(...scanPs1(fp, deep))
-                }
-            }
-            else if (/\.ps1$/i.test(d.name) && !d.name.startsWith('__PSScriptPolicyTest_')) { //__PSScriptPolicyTest_*.ps1 為 PowerShell 啟動時自建之檢查檔, 瞬間即刪(並行之他檔測試亦會啟動 PowerShell), 非本套件所寫
-                rs.push(fp)
-            }
-        }
-        return rs.sort()
-    }
-    let snapPs1 = () => JSON.stringify([scanPs1(os.tmpdir(), false), scanPs1(path.resolve('.'), true)])
 
     //note: 共用的探測腳本, 讀入帶入之環境變數並以 UTF-8 輸出
     let psProbe = [
@@ -209,42 +176,6 @@ describe('addDocxToc', function() {
         let h = sha(fp)
         await assert.rejects(addDocxToc(fp), (e) => e === 'Failed to prepare the TOC: the document has 2 sections, renumbering pages requires a document of 1 section (set pageNumbers to false to keep the sections)')
         assert.strict.equal(sha(fp), h)
-    })
-
-    it('Word更新: 有Word時添加目錄並通過核對; 無Word時reject之原因以系統字碼頁正確解碼、原檔不變; 暫存檔皆清除', async function() {
-        this.timeout(180000)
-        let fp = path.resolve(fdTmp, 'word.docx')
-        fs.writeFileSync(fp, buildDocx(cover() + bodyWord))
-        let h = sha(fp)
-        let n0 = nTmpToc()
-        let s0 = snapPs1()
-        let res = null
-        let err = null
-        await addDocxToc(fp)
-            .then((r) => {
-                res = r
-            })
-            .catch((e) => {
-                err = e
-            })
-        assert.strict.equal(nTmpToc(), n0)
-        assert.strict.equal(snapPs1(), s0) //Word 以 PowerShell 腳本驅動, 腳本帶於命令列, 系統暫存夾與套件目錄不得新增 .ps1
-        if (hasWord()) {
-            assert.strict.equal(err, null, String(err))
-            assert.strict.equal(res.skip, '')
-            assert.strict.equal(res.cover, true)
-            assert.strict.deepEqual(res.lists, ['toc', 'tab'])
-            assert.strict.equal(res.toc, 3)
-            assert.strict.equal(res.tab, 2)
-            assert.strict.notEqual(sha(fp), h)
-        }
-        else {
-            assert.strict.equal(res, null)
-            assert.strict.equal(typeof err, 'string')
-            assert.strict.equal(err.startsWith('Word failed to update the fields: '), true, err)
-            assert.strict.equal(err.includes(String.fromCharCode(0xFFFD)), false, err) //Word 之原因為系統字碼頁, 以 utf-8 解碼會成亂碼(含 U+FFFD)
-            assert.strict.equal(sha(fp), h)
-        }
     })
 
 })

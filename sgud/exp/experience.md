@@ -10,6 +10,13 @@
 - 假轉檔器(`runWithFakeHtml2docx`)另記錄所收之中介 html(`globalThis.fakeHtml2docxHtml`),可 `reject` 指定字串;假的 `WHtml2docx` 無 `ensureBins` 屬性,故用假轉檔器之子程序不可呼叫 `checkDocxReady`(health).
 - `process.env` 為 fsEnsureBins 於呼叫時讀取(`W_BIN_CACHE`、`W_BIN_MIRROR`、`W_BIN_OFFLINE`),單元測試可暫改後還原;快取位置 `<W_BIN_CACHE>/w-html2docx/<sha256>/htmlToDocx.exe`,預設為 `node_modules/w-html2docx/bin-cache/<sha256>/htmlToDocx.exe`(無 pkg 層).`ensureBins({ offline: true, mirror: '' })` 不連網、不用 `W_BIN_MIRROR`,快取內校驗不符之檔會被刪除.
 
+## 跨行程同時驅動 Word(2026-11-10,md407)
+
+- 症狀(全庫連動跟跑,3/3 輪紅):`unit-cvMdToDocx`〈實轉〉before hook 得 `Failed to convert html to docx: code[1]:\nerror: AttributeError: Open.Range`(或逾時 180 s);`unit-addDocxToc`〈Word更新〉於 `assert.strict.equal(nTmpToc(), n0)` 失敗(實際比預期多 1,不是 `res.toc`/`res.tab`——斷言訊息 `3 !== 2` 為 actual/expected,易誤讀),系統暫存夾留下 `wmd2docx_toc_<pid>_…_in.docx`(其 pid 段可認出是哪個行程留的).
+- **機轉(實測)**:w-html2docx 之 `htmlToDocx.exe` 以 win32com `Dispatch('Word.Application')` 取得 Word——先連執行中之實例;PowerShell 先開一個隱藏 Word(命令列 `/Automation -Embedding`)並開一份文件,再轉檔:轉檔期間全機只有該 WINWORD、其文件數 1→3→0,轉畢該 WINWORD 結束.兩行程同時起跑而 `addDocxToc` 晚約 1.5 s 時兩邊皆失敗(`update failed: 不可在值為 Null 的運算式上呼叫方法` 與 `Open.Range`),晚 0 s(轉檔尚在 md→html)或 3 s 時皆過,依序皆過;時間窗窄,全套中是否撞上取決於各檔起跑時序與負載.
+- **分辨依賴升版之最小步驟**:`npm pack <pkg>@<舊>`、`@<新>` 解到暫存夾,`diff -rq` 比 `src/`、`srcPython/`、`bin/manifest.json`(exe 之 sha256)與 dist(只差版本橫幅即等價);再查本套件 import 的是 `src/` 還是 main(dist).本輪四個升版之自有套件 `src/` 皆逐檔相同;以副本(`git ls-files` 複製、`npm ci --min-release-age=0`、`npm i <pkg>@<舊> --no-save`)重跑同一並行實驗,新舊版失敗率相同,即與升版無關.
+- 收尾 WINWORD 時以命令列含 `/Automation` 或 `-Embedding` 判定為自動化啟動者才結束(`Get-CimInstance Win32_Process` 之 `CommandLine`),不動使用者手動開啟之 Word.
+
 ## 防毒軟體與 Word 驅動腳本(2026-11-02,Gitea #53 建議 3:vbs 改 PowerShell,腳本不落地)
 
 - 緣由:Microsoft Defender 即時保護以機器學習把獨立之 `updateDocxToc.vbs` 判為 `Trojan:Script/ObfusScript.A!ml`(誤報;推測成因為「腳本驅動 Word 開檔另存＋`On Error Resume Next`」近似巨集型惡意程式),任何程式一讀取即隔離,使用端只見 `updateDocxToc.vbs is not found`.處置:改以 Windows 內建 PowerShell 5.1 經 COM 驅動 Word,腳本以 `-EncodedCommand` 帶於命令列、不寫成檔案,並刪除該 vbs(規則 R-AV-1).實測本機(Defender 即時保護與行為監控開啟、無 ASR 規則)跑 PowerShell 版數十次,`Get-MpThreatDetection` 恆為 0,新增/改動之原始碼檔 `MpCmdRun -Scan -ScanType 3 -File` 皆 `found no threats`.**此為本機實測,不保證企業端點(EDR、ASR 規則「阻擋可能經過模糊處理的指令碼」、AppLocker/WDAC 受限語言模式)亦放行**;受限語言模式下 `New-Object -ComObject` 被禁(模擬實測),無解.

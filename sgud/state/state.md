@@ -2,8 +2,8 @@
 
 本檔記載當前已開發功能之最新狀態(各功能做到哪裡、對應之規則帳本條目與測試檔、已知缺口與待辦、最近一次驗證或發布之版本),只記現況、不寫過程(過程見 `sgud/exp/experience.md`).規則帳本(`sgud/rule/rulebook.md`)為藍圖,與本檔比對即知尚未做到者.
 
-- 套件版本:`package.json` 1.0.28(本輪 md96 未改版本、未發布,由主控發布);依賴 `w-md2html` `^1.1.20`、`w-html2docx` `^1.0.48`、`wsemi` `^1.9.52`(實裝 1.1.20、1.0.48、1.9.52).
-- 最近一次驗證:2026-11-07(md96,Gitea #96)全套 `npm test`(真 Word 16、經 `quiet-run --lock`)266 passing、1 pending(既有:有 Word 時略過「無Word時…」)、0 failing;`eslint --ext .mjs src test g.mjs` 0 error;L0e 自有套件界線掃描 18 檔必修 0、待判讀 0.上一輪(2026-11-02,md282)258 passing.
+- 套件版本:`package.json` 1.0.32(本輪 md407 未改版本、未發布,由主控發布);依賴 `w-md2html` `^1.1.25`、`w-html2docx` `^1.0.51`、`wsemi` `^1.9.55`(實裝 1.1.25、1.0.51、1.9.55).
+- 最近一次驗證:2026-11-10(md407,修正全庫連動跟跑之 2 failing)全套 `npm test`(真 Word 16、經 `quiet-run --lock`)連 3 輪皆 266 passing、1 pending(既有:有 Word 時略過「無Word時…」)、0 failing;`eslint --ext .mjs src test g.mjs` 0 error;L0e 自有套件界線掃描 18 檔必修 0、待判讀 0.上一輪(2026-11-07,md96)266 passing.另:剛重裝 w-html2docx 而預設快取尚無轉檔器時,`unit-utils`〈checkDocxReady〉之 2 個快取案略過(264 passing、3 pending),屬常態.
 
 ## 功能
 
@@ -15,9 +15,10 @@
 | `cvMdTo` md 內容 → html/docx(base64) | 完成.回傳 html 恆自足(含 `both`),先於 docx 產製;base64 合計 > 約 401,866,734 位元組時明確 reject | R-IMG-2、R-IMG-3、R-LIM-2 | `unit-cvMdTo`、`unit-utils`、`unit-cvMdToDocx` | 更大之 docx 須改串流/檔案回傳(另案) |
 | `rmApiServer` | 完成.`GET /api/health` 之 `exeFound`/`exePath` 為 w-html2docx 快取之診斷(只看快取);超限回 500 + 明確訊息、服務不中止 | R-DIAG-1、R-LIM-2 | `api-rmApiServer` | — |
 | `rmApiClient` | 完成.缺圖於送出前 reject;`allowMissingAssets` 已移除 | R-IMG-3 | `api-rmApiClient` | 夾帶資產/模板之請求 JSON 受字串上限限制,超限為通用錯誤(已知不修) |
-| `addDocxToc` 驅動 Word 之方式 | 完成(Gitea #53 建議 3).以 Windows PowerShell 5.1 經 COM 驅動 Word,腳本以 `-EncodedCommand` 帶於命令列、不落地(無 .ps1/.vbs);路徑經環境變數 `W_MD2DOCX_SRC`/`W_MD2DOCX_DST`;輸出格式、離開碼、錯誤字頭同舊 vbs;`src/updateDocxToc.vbs` 與 `getFpVbs`、隔離訊息已移除;目錄/頁碼/核對/覆寫之行為不變(11 樣本與更換前逐項相同) | R-AV-1 | `unit-addDocxToc`、`unit-cvMdToDocx`〈Word更新腳本(PowerShell)〉〈powershell.exe無法啟動〉〈README之TOC節〉 | 受限語言模式(AppLocker/WDAC)下無法驅動 Word;逾時時 COM 啟動之 WINWORD 可能殘留(同舊作法);`test/tools/figurePages.vbs`(測試資產,量測頁碼)仍為獨立 .vbs,待主控裁示是否改為 PowerShell |
+| `addDocxToc` 驅動 Word 之方式 | 完成(Gitea #53 建議 3).以 Windows PowerShell 5.1 經 COM 驅動 Word,腳本以 `-EncodedCommand` 帶於命令列、不落地(無 .ps1/.vbs);路徑經環境變數 `W_MD2DOCX_SRC`/`W_MD2DOCX_DST`;輸出格式、離開碼、錯誤字頭同舊 vbs;`src/updateDocxToc.vbs` 與 `getFpVbs`、隔離訊息已移除;目錄/頁碼/核對/覆寫之行為不變(11 樣本與更換前逐項相同) | R-AV-1 | `unit-addDocxToc`、`unit-cvMdToDocx`〈addDocxToc Word更新〉〈Word更新腳本(PowerShell)〉〈powershell.exe無法啟動〉〈README之TOC節〉 | 受限語言模式(AppLocker/WDAC)下無法驅動 Word;逾時時 COM 啟動之 WINWORD 可能殘留(同舊作法);`test/tools/figurePages.vbs`(測試資產,量測頁碼)仍為獨立 .vbs,待主控裁示是否改為 PowerShell |
 | 隨套件附帶之模板與目錄標題樣式名稱(Gitea #96) | 完成.只附中性模板 `src/templates/temp.docx`(樣式名稱中性、id 前綴 `Rpt`、文件屬性與附加模板連結皆空;排版與原模板相同);原模板已移除,`rmApiServer` 之 `templateDef` 預設 `temp.docx`;`toc.titleStyle` 預設 `報告目錄標題`(不用「目錄標題」:繁體中文版 Word 視之為內建 TOC Heading 之本地化名稱而更名);無舊名相容,README〈Breaking changes〉8、9 | R-TPL-1 | `unit-docxToc`〈temp.docx(本套件所附之中性模板)〉等、`unit-cvMdToDocx`(真 Word)、`api-rmApiServer`、`api-rmApiClient` | w-html2docx 內建模板 + `toc: true` 於真 Word 被拒(`the cover section should have no footer`,修改前即存在,與本項無關,範圍外未修,見規則帳本〈已知限制〉) |
 | `addDocxToc`、`docxKeep`、`docxToc` 之其餘部分 | 未動 | — | `unit-addDocxToc`、`unit-docxKeep`、`unit-docxToc` | — |
+| 測試之 Word 隔離(md407) | 完成.實際啟動 Word 之測試只在 `unit-cvMdToDocx.test.mjs`(原 `unit-addDocxToc`〈Word更新〉已移入,斷言不變);`addDocxToc` 測試夾具集中於 `test/tools/tocFixture.mjs` | R-TEST-1 | 全套 `npm test`(`--parallel`) | 跨行程同時驅動 Word 不受佇列保護(產品面已知限制,根在 w-html2docx 之 `Dispatch`+`Quit`,見規則帳本〈已知限制〉) |
 
 ## 大量圖片實測(2026-10-29,不入測試套件)
 
@@ -29,3 +30,4 @@
 - 服務/`cvMdTo` 回傳 > 約 401 MB 之 docx:改串流/檔案回傳(破壞 API,另案).
 - 內建模板(未給 `fpInTemp`)+ `toc: true` + 真 Word 被拒(封面節核對:`the cover section should have no footer`)是否另案處理(範圍外,見規則帳本〈已知限制〉).
 - `titleStyle` 預設為 `報告目錄標題` 而非主控原定之 `目錄標題` 的裁示(實測依據見 R-TPL-1、經驗〈模板與樣式名稱〉).
+- w-html2docx 之轉檔器以 `wc.Dispatch` 連上他行程(或使用者)已開啟之 Word 並於轉畢 `Quit`(md407 實測他行程之自動化 Word 被關;使用者互動 Word 未實測):是否由主控對 w-html2docx 立案改 `DispatchEx`;本套件 README 是否補述「佇列限同一行程」.

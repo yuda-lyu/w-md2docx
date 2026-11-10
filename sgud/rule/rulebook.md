@@ -66,7 +66,7 @@
 - 盤點:Grep `cscript|wscript|\.vbs|\.ps1|powershell` `src/`(glob 加 `!**/*.vbs`);`ls src` 無 .vbs/.ps1.
 - 站點全集:`src/addDocxToc.mjs:26`(`psScript`)、`:97`(`execPs`)、`:126`(`runWord`)——全套件驅動 Word 之腳本僅此一處.測試資產 `test/tools/figurePages.vbs`(量測圖名頁碼,`imgFixture.mjs` 以 cscript 執行)為**另一個獨立 .vbs**,不在本規則範圍,見〈已知限制〉.
 - 判準:`src/` 無 .vbs/.ps1、原始碼不呼叫 cscript/wscript、`package.json` 不提 .vbs;執行前後系統暫存夾與套件目錄無新增 .ps1;成功與各階段失敗後無本次新啟動之 WINWORD.
-- 測試:`test/unit-addDocxToc.test.mjs`(腳本 ASCII/不含路徑/命令列長度、無腳本檔、`fromClixml`、`execPs` 環境變數原樣帶入與還原、離開碼/未捕捉例外/逾時、用法錯誤與 Word 無法啟動之字頭、〈Word更新〉無 .ps1 落地)、`test/unit-cvMdToDocx.test.mjs`(〈Word更新腳本(PowerShell)〉真 Word:成功/open/update/save 各字頭與無 WINWORD 殘留;〈powershell.exe無法啟動〉;〈README之TOC節〉).
+- 測試:`test/unit-addDocxToc.test.mjs`(腳本 ASCII/不含路徑/命令列長度、無腳本檔、`fromClixml`、`execPs` 環境變數原樣帶入與還原、離開碼/未捕捉例外/逾時、用法錯誤與 Word 無法啟動之字頭)、`test/unit-cvMdToDocx.test.mjs`(〈addDocxToc Word更新〉無 .ps1 落地與暫存檔清除〔md407 自 `unit-addDocxToc` 移入,R-TEST-1〕;〈Word更新腳本(PowerShell)〉真 Word:成功/open/update/save 各字頭與無 WINWORD 殘留;〈powershell.exe無法啟動〉;〈README之TOC節〉).
 - 不做/限制:受限語言模式(Constrained Language Mode,AppLocker/WDAC)下 `New-Object -ComObject` 被禁,無法以此法驅動 Word(模擬實測 `Cannot create type`);逾時時 `powershell.exe` 樹被結束而 COM 啟動之 WINWORD 不在其中,可能殘留(與舊 cscript 作法相同);`execProcess` 無 `env` 選項,故暫設 `process.env`(呼叫端須序列化,`addDocxToc` 經 `runExclusive`).
 - 作業守則:不再有須避讀之 .vbs;`test/tools/figurePages.vbs` 未動.
 
@@ -83,9 +83,14 @@
 - 測試:`test/unit-docxToc.test.mjs`〈未給titleStyle(temp.docx與內建模板)〉〈模板只有舊名樣式…〉〈temp.docx(本套件所附之中性模板)〉(自訂段落樣式清單、樣式 id 前綴、參照皆有對應、文件屬性與附加模板為空、A4/邊界/行格線、預設名稱不為「目錄標題」);`test/unit-cvMdToDocx.test.mjs`〈toc:true且未給titleStyle(temp.docx)〉〈…(模板只有舊名樣式)〉(真 Word:三目錄標題之樣式名稱、模板全部樣式名稱經轉檔後原名保留、樣式 id 前綴;衍生模板於 `test/_tmp`);`test/api-rmApiServer.test.mjs`、`test/api-rmApiClient.test.mjs`(模板清單只有 `temp.docx`).
 - 限制:w-html2docx 內建模板含頁首頁尾,其上 `toc: true` 於真 Word 被拒(`TOC check failed (1): the cover section should have no footer`),修改前即存在、與樣式名稱無關,範圍外未修,見〈已知限制〉;故真 Word 之測試用 `temp.docx` 與其衍生模板.
 
-### R-TEST-1 呼叫 Word 之測試併於 `unit-cvMdToDocx.test.mjs` 依序執行
+### R-TEST-1 實際啟動 Word 之測試只在 `unit-cvMdToDocx.test.mjs`(同檔依序),無例外
 
-- 規則:Word 為單一實例,mocha `--parallel` 之不同檔同時調用會互相拒絕(`com_error -2147418111 接收者已拒絕這個呼叫`),失敗後遺留 WINWORD 與開啟中之文件(鎖住 `test/_tmp` 與 `src/templates/~$mp.docx`).新增之長時間 Word 測試併入該檔(同檔依序),不另開檔.`unit-addDocxToc`/`unit-docxToc` 之 Word 測試為短時間,維持現狀(**殘留風險**:該二檔與 `unit-cvMdToDocx` 於 `--parallel` 開頭同時啟動,2026-10-29 另有一次在舊碼複本樹之全套出現 `com_error -2147023174 RPC 伺服器無法使用`,見 `sgud/exp/experience.md`;其餘全套 3 次未再現).
+- 規則:mocha `--parallel` 之不同檔不得同時驅動 Word.凡實際啟動 Word 之測試(經 w-html2docx 轉檔、經 `addDocxToc` 或 `execPs(psScript)` 更新欄位、`getFigurePages`〔`figurePages.vbs`〕量頁碼)一律置於 `test/unit-cvMdToDocx.test.mjs`,同檔依序;其他測試檔以假轉檔器(`runWithFakeHtml2docx`)、`simulateWordToc`、未註冊之 COM 類別或「於啟動 Word 前即 reject 之輸入」代之.新增之 Word 測試不論長短皆併入該檔.
+- why:本套件之 `runExclusive` 只在同一行程內排隊.不同行程同時驅動 Word 會互相破壞:w-html2docx 之轉檔器以 win32com `Dispatch` 連上他行程已啟動之 Word,轉畢 `Quit` 而關閉對方之文件(2026-11-10 md407 實測:轉檔期間無新 WINWORD、轉畢對方 WINWORD 消失).實測兩行程(`addDocxToc` 與 `cvMdToDocx`)同時起跑、`addDocxToc` 晚 1.5 s 者主 repo(w-html2docx 1.0.51)與副本(1.0.50)各 2/2 兩邊皆失敗(`addDocxToc`:`update failed: 不可在值為 Null 的運算式上呼叫方法` 且 `wmd2docx_toc_*_in.docx` 被鎖而殘留於系統暫存夾;轉檔:`AttributeError: Open.Range`),依序各 0/2.過去另見 `com_error -2147418111 接收者已拒絕這個呼叫`、`-2147023174 RPC 伺服器無法使用`,失敗後可遺留 WINWORD 與開啟中之文件(鎖住 `test/_tmp` 與 `src/templates/~$mp.docx`).原 `unit-addDocxToc`〈Word更新〉為「短時間、維持現狀」之例外,2026-11-10 全庫連動跟跑時實際發生(3/3 輪紅),md407 移入本檔.
+- 盤點:Grep `hasWord\(\)|addDocxToc\(|execPs\(psScript|cvMdToDocx\(|WHtml2docx\(|getFigurePages\(|cvMdTo\(` `test/*.test.mjs`,逐處判是否實際啟動 Word(假轉檔器之子行程內者、於 Word 前 reject 者〔輸入檢查、2 GiB、無標題 skip、前提不符〕、`psScript` 換為未註冊類別者、打假服務者不算).
+- 站點全集(2026-11-10):實際啟動 Word 者皆在 `test/unit-cvMdToDocx.test.mjs`——〈實轉〉、〈addDocxToc Word更新〉、〈圖片內嵌於docx〉、〈轉檔器取得失敗與預設模板查找失敗之訊息〉之「給fpInTemp時…有Word則轉檔成功」.不啟動 Word 者:`unit-addDocxToc`(輸入檢查、2 GiB、無標題、前提不符;Word 無法啟動案用 `Md2docxNoSuchApp.Application`)、`unit-cvMdTo`/`unit-cvMdToDocxImg`/`api-rmApiServer`(假轉檔器,toc 案皆無標題 skip)、`api-rmApiClient`(docx 請求皆打假服務)、`unit-docxToc`(`simulateWordToc`)、`unit-docxKeep`、`unit-utils`.
+- 判準:上列 Grep 之每一處,實際啟動 Word 者所在檔為 `unit-cvMdToDocx.test.mjs`;否則為違規.
+- 共用夾具:`addDocxToc` 之測試夾具與檢查函數(`bodyWord`、`sha`、`nTmpToc`、`snapPs1`)只定義於 `test/tools/tocFixture.mjs`,`unit-addDocxToc` 與 `unit-cvMdToDocx` 共用.
 - 測試分層:`unit-` 前綴含真 Word 者沿用既有慣例(`hasWord()` 守門).
 
 ## 二、改動範圍 → 測試檔對照
@@ -100,6 +105,7 @@
 | `src/docxKeep.mjs`、`docxXml.mjs` | `unit-docxKeep`、`unit-cvMdToDocx` |
 | `src/rmApiServer.mjs`、`rmApiClient.mjs` | `api-rmApiServer`、`api-rmApiClient` |
 | 升 w-md2html / w-html2docx | 全套 `npm test`(真 Word,經 `quiet-run --lock`) |
+| 新增或搬移啟動 Word 之測試、`test/tools/tocFixture.mjs` | `unit-cvMdToDocx`、`unit-addDocxToc`,並依 R-TEST-1 之盤點確認他檔不啟動 Word;收尾跑全套(`--parallel` 之跨檔交錯只在全套出現) |
 
 ## 三、破壞性變更紀錄
 
@@ -113,4 +119,5 @@
 - w-md2html:同一行多個 `<img src="">` 擲 `size(s)!==2`;單引號/無引號 `src` 不處理(上游另案).
 - 不帶 `pHYs` 且小於版心之 PNG 依 96 dpi 顯示(每像素 0.75 點),過去為 1 點(待主控裁示是否需補償,見報告).
 - w-html2docx 內建模板(未給 `fpInTemp`)含頁首頁尾,其上 `toc: true` 於真 Word 以 `Failed to add the TOC: TOC check failed (1): the cover section should have no footer` reject(2026-11-07 以 w-html2docx 1.0.48 實測,git HEAD 之 src 亦同,與 `titleStyle` 無關);`docxToc.mjs` 之 prep 層(無 Word)對內建模板可處理,故差在 Word 更新後封面節繼承頁尾.範圍外,未修,待主控裁示是否另案.
+- 跨行程同時驅動 Word(兩個 node 行程各自呼叫 `cvMdToDocx`/`addDocxToc`,或其他程式同時以 COM 驅動 Word)不受本套件之佇列保護:`runExclusive` 只排同一行程;w-html2docx 之轉檔器(`srcPython/htmlToDocx.py` 之 `wc.Dispatch`)連上執行中之 Word 並於轉畢 `Quit`,使對方之文件被關、轉換失敗(md407 實測,1.0.50 與 1.0.51 相同).建議 w-html2docx 改 `DispatchEx`(每次獨立實例),待主控裁示是否立案;本套件 README 僅寫「conversions and TOC updates share one queue」,未述明限於同一行程.
 - `test/tools/figurePages.vbs`(測試資產:以 Word 量圖與圖名之頁碼,`test/tools/imgFixture.mjs` 以 cscript 執行)仍是獨立 .vbs;因 `package.json` 無 `files` 且無 `.npmignore`,`test/` 隨 npm 包發布,該檔因而仍在發布內容中.R-AV-1 只處理 `src/` 驅動 Word 之腳本,此檔待主控裁示(改為 `execPs` 之 PowerShell 腳本,或自發布內容排除 `test/`).

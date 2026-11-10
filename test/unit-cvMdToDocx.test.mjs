@@ -9,7 +9,7 @@ import WHtml2docx from 'w-html2docx/src/WHtml2docx.mjs'
 import cvMdToDocx from '../src/cvMdToDocx.mjs'
 import cvMdTo from '../src/cvMdTo.mjs'
 import { unzipSync, zipSync, strFromU8, strToU8 } from 'fflate'
-import { psScript, execPs } from '../src/addDocxToc.mjs'
+import addDocxToc, { psScript, execPs } from '../src/addDocxToc.mjs'
 import { prepDocxToc } from '../src/docxToc.mjs'
 import { runExclusive } from '../src/utils.mjs'
 import hasWord from './tools/hasWord.mjs'
@@ -18,6 +18,7 @@ import runWithFakeHtml2docx from './tools/fakeHtml2docx.mjs'
 import { parts, buildDocx, readPart, listParas } from './tools/docxFixture.mjs'
 import { genTallPng, getImgHeights, getFigurePages } from './tools/imgFixture.mjs'
 import { mkFixture, scanDocx, imgSrcs, nTmpHtmlOfThisProcess } from './tools/docxImg.mjs'
+import { sha, nTmpToc, bodyWord, snapPs1 } from './tools/tocFixture.mjs'
 
 
 //fdTmpRoot: 本測試檔專用暫存夾, 各describe於其下自建子夾並於after刪除
@@ -429,6 +430,66 @@ describe('cvMdToDocx 實轉(需Windows+Microsoft Word)', function() {
         let z = readZipEntries(Buffer.from(r.docx.base64, 'base64'))
         assert.strict.equal(z['word/document.xml'].toString('utf8').includes('內容轉檔'), true)
         assert.strict.equal(fs.readdirSync(fdTmp).filter((v) => v.startsWith('job_')).length, 0) //作業夾已清除
+    })
+
+})
+
+
+//addDocxToc Word更新: 自 unit-addDocxToc.test.mjs 移入(斷言不變)
+//why: 與本檔其他調用 Word 之測試依序執行(規則帳本 R-TEST-1)——mocha --parallel 之不同檔同時調用 Word 時, w-html2docx 之轉檔器連上另一行程已啟動之 Word 並於轉畢 Quit,
+//     兩邊各自失敗(addDocxToc: update failed 且 _in.docx 暫存檔被鎖而殘留; 轉檔: AttributeError: Open.Range), 2026-11-10 實測重現
+describe('addDocxToc Word更新(Windows; 有Word時實際調用Word)', function() {
+
+    //check, Word 只存在於 Windows(非Windows之reject見 unit-addDocxToc.test.mjs)
+    if (process.platform !== 'win32') {
+        return
+    }
+
+    let fdTmp = path.resolve(fdTmpRoot, 'addDocxToc')
+
+    before(function() {
+        fs.mkdirSync(fdTmp, { recursive: true })
+    })
+
+    after(function() {
+        fs.rmSync(fdTmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 })
+    })
+
+    it('Word更新: 有Word時添加目錄並通過核對; 無Word時reject之原因以系統字碼頁正確解碼、原檔不變; 暫存檔皆清除', async function() {
+        this.timeout(180000)
+        let { cover } = parts
+        let fp = path.resolve(fdTmp, 'word.docx')
+        fs.writeFileSync(fp, buildDocx(cover() + bodyWord))
+        let h = sha(fp)
+        let n0 = nTmpToc()
+        let s0 = snapPs1()
+        let res = null
+        let err = null
+        await addDocxToc(fp)
+            .then((r) => {
+                res = r
+            })
+            .catch((e) => {
+                err = e
+            })
+        assert.strict.equal(nTmpToc(), n0)
+        assert.strict.equal(snapPs1(), s0) //Word 以 PowerShell 腳本驅動, 腳本帶於命令列, 系統暫存夾與套件目錄不得新增 .ps1
+        if (hasWord()) {
+            assert.strict.equal(err, null, String(err))
+            assert.strict.equal(res.skip, '')
+            assert.strict.equal(res.cover, true)
+            assert.strict.deepEqual(res.lists, ['toc', 'tab'])
+            assert.strict.equal(res.toc, 3)
+            assert.strict.equal(res.tab, 2)
+            assert.strict.notEqual(sha(fp), h)
+        }
+        else {
+            assert.strict.equal(res, null)
+            assert.strict.equal(typeof err, 'string')
+            assert.strict.equal(err.startsWith('Word failed to update the fields: '), true, err)
+            assert.strict.equal(err.includes(String.fromCharCode(0xFFFD)), false, err) //Word 之原因為系統字碼頁, 以 utf-8 解碼會成亂碼(含 U+FFFD)
+            assert.strict.equal(sha(fp), h)
+        }
     })
 
 })
