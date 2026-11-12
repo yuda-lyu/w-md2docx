@@ -1,16 +1,16 @@
 {
   "name": "w-md2docx",
-  "version": "1.0.36",
+  "version": "1.0.37",
   "main": "dist/w-md2docx.umd.js",
   "dependencies": {
-    "@hapi/hapi": "^21.4.12",
+    "@hapi/hapi": "^21.4.13",
     "fflate": "^0.8.3",
-    "w-html2docx": "^1.0.54",
-    "w-md2html": "^1.1.27",
-    "wsemi": "^1.9.57"
+    "w-html2docx": "^1.0.55",
+    "w-md2html": "^1.1.28",
+    "wsemi": "^1.9.58"
   },
   "devDependencies": {
-    "w-package-tools": "^1.1.27"
+    "w-package-tools": "^1.1.28"
   },
   "scripts": {
     "test": "mocha --parallel \"test/*.test.mjs\" --timeout 180000",
