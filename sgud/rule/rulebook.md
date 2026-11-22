@@ -46,7 +46,8 @@
 
 ### R-DIAG-1 `exeFound`/`exePath` 僅為診斷,不得作守門
 
-- 規則:`checkDocxReady()`(async)以 `WHtml2docx.ensureBins({ offline: true, mirror: '' })` 判斷轉檔器是否已備妥於 w-html2docx 之快取(只看快取、不連網、不用鏡像、命中亦校驗);任何失敗皆視為未備妥;`ready` 僅以作業系統為 Windows 判定.不得以此事前攔截轉檔(否則下層取得機制永遠不被執行,見記憶 no-upper-layer-precheck).
+- 規則:`checkDocxReady()`(async)以 `WHtml2docx.ensureBins({ offline: true, mirror: '' })` 判斷轉檔器是否已備妥於 w-html2docx 之快取(只看快取、不連網、不用鏡像、命中亦校驗);任何失敗皆視為未備妥;`ready` 僅以作業系統為 Windows 判定.不得以此事前攔截轉檔(否則下層取得機制永遠不被執行).
+- 上層不得重寫下層之偵測規則(使用者裁示,2026-09-13;2026-11-22 自自動記憶提取,取代原「見記憶 no-upper-layer-precheck」之指向):包裝自有套件(w-*)時,資源(執行檔、模板等)之定位、缺檔補齊與可用性判斷一律交給擁有該資源之下層套件;上層不得複製其查找規則做事前檢查、狀態守門或測試守門.起因:曾以自寫之 `getFpExe()`(與 w-html2docx 同規則、只查不補)在呼叫 `WHtml2docx` 前攔截,使 w-html2docx 1.0.28 新增之「缺 htmlToDocx.exe 時自動取得」永遠不執行,消費端升版後第一次產 docx 必失敗而兩度中斷報告產製(`getFpExe` 已移除,見〈三、破壞性變更紀錄〉).使用者原話:「該不會這邊自己自作主張偵測並報錯中斷,導致原本可以自動下載的機制反而被這邊搞砸」.作法:讀到上層碼含「與下層同規則」「事前檢查」字樣即視為補丁,直接呼叫下層、失敗時補充訊息(可附 cwd 等脈絡),不預判;狀態回報欄位(`exeFound`/`exePath`)只作診斷,不得讓「目前缺檔」推導出「不可用」;驗收一律模擬消費端 `npm i` 後之自然狀態(缺檔、快取空)而非手動補齊環境(不手動下載或搬移執行檔);訊息脈絡不足屬下層問題,建議於下層收斂,不在上層比對文字補救.
 - 站點:`src/utils.mjs` `checkDocxReady`;使用處 `src/rmApiServer.mjs` `getState`(`GET /api/health`).
 - 測試:`test/unit-utils.test.mjs`〈checkDocxReady〉(快取空、校驗不符、命中、鏡像不取用)、`test/api-rmApiServer.test.mjs`(health 欄位).
 

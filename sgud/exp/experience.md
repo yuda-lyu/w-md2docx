@@ -58,3 +58,5 @@
 
 - `package.json` 經 `npm i` 後檔尾多一個換行(原無),版本欄位不變.
 - git 工作副本為 `autocrlf`,`git diff` 提示 `LF will be replaced by CRLF` 屬常態;收尾以 `git ls-files --eol` 確認行尾未被改動.
+- **`git stash push/pop` 會把還原之檔由 LF 改成 CRLF**(2026-10-10 做「新測試在舊碼會紅」驗證時,`src/rmApiServer.mjs` 還原後 `git ls-files --eol` 由 `w/lf` 變 `w/crlf`,其餘檔不變;`git diff --stat` 因行尾正規化看不出,易夾帶進 commit).故先紅後綠一律用 `git show HEAD:<檔>` 或 `git archive`(見〈模板與樣式名稱〉末條)輸出到 `./tmp/` 另行載入,不動工作檔;已動到者以 node 把 `\r\n` 轉回 `\n`,收尾以 `git ls-files --eol <檔>` 確認 `w/lf`.
+- **Word 相依之期望值須以真 Word 實跑核對**(2026-10-10):本機有 Word 16 之前(2026-09-01～10-10)寫下之 Word 相依測試期望值與 README/JSDoc 範例輸出皆未實跑過;補實跑即發現錯誤,例如 toc 測試曾寫死 `\o "1-2"`,實際 Word 匯入 html 時 h1/h2 為段落直設之大綱階層 2/3(非 1、2),改為自 docx 讀大綱階層(`test/unit-cvMdToDocx.test.mjs` 該案註解).Word 相依之主張(版面、目錄、頁碼、欄位 XML)直接以真 Word 實測,不只靠讀碼推論;不需 Word 之接線/失敗路徑用 `test/tools/fakeHtml2docx.mjs` 與 `test/tools/docxFixture.mjs`.
