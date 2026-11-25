@@ -13,6 +13,7 @@ import addDocxToc, { psScript, execPs } from '../src/addDocxToc.mjs'
 import { prepDocxToc } from '../src/docxToc.mjs'
 import { runExclusive } from '../src/utils.mjs'
 import hasWord from './tools/hasWord.mjs'
+import { BIN_ENSURE_TIMEOUT_MS, ensureHtmlToDocxBin } from './tools/binEnsure.mjs'
 import { wordPids, waitWordGone } from './tools/wordProcs.mjs'
 import runWithFakeHtml2docx from './tools/fakeHtml2docx.mjs'
 import { parts, buildDocx, readPart, listParas } from './tools/docxFixture.mjs'
@@ -93,6 +94,12 @@ describe('cvMdToDocx 實轉(需Windows+Microsoft Word)', function() {
     let rt = null
     let zip = null
     let xml = ''
+
+    //轉檔器之取得集中於此(test/tools/binEnsure.mjs, 規則帳本 R-TEST-2): 帶跨程序鎖只取得一次, 時限對齊下載預算; 其後之轉檔(含他describe與子程序)之隱式取得皆命中快取
+    before(async function() {
+        this.timeout(BIN_ENSURE_TIMEOUT_MS)
+        await ensureHtmlToDocxBin()
+    })
 
     before(async function() {
         this.timeout(180000)
@@ -523,6 +530,12 @@ describe('cvMdToDocx 圖片內嵌於docx(需Windows+Microsoft Word)', function()
         return fpDocx
     }
 
+    //轉檔器之取得見〈實轉〉之說明(同一行程只取得一次, 此處為單獨執行本 describe 時之保險)
+    before(async function() {
+        this.timeout(BIN_ENSURE_TIMEOUT_MS)
+        await ensureHtmlToDocxBin()
+    })
+
     before(async function() {
         this.timeout(600000)
         fs.mkdirSync(fd, { recursive: true })
@@ -662,6 +675,15 @@ describe('cvMdToDocx 轉檔器取得失敗與預設模板查找失敗之訊息(�
     let fpInTemp = path.resolve('./src/templates/temp.docx')
     let msgHint = 'w-html2docx resolves its default template from cwd, please run from the project root that contains node_modules/w-html2docx or give fpInTemp'
     let msgHintBin = 'the external executable htmlToDocx.exe of w-html2docx is not available, see the section "外部執行檔" of the README of w-html2docx for W_BIN_CACHE, W_BIN_MIRROR, W_BIN_OFFLINE and WHtml2docx.ensureBins()'
+
+    //轉檔器之取得集中於此(test/tools/binEnsure.mjs, 規則帳本 R-TEST-2): 第2案之子程序真轉檔之隱式取得即命中快取, 不與他檔各自下載;
+    //取得失敗(如無法連網下載)時不中斷第1、3案(其不需轉檔器), 第2案之子程序再取一次, 仍失敗則依其既有判定略過(見該案)
+    before(async function() {
+        this.timeout(BIN_ENSURE_TIMEOUT_MS)
+        await ensureHtmlToDocxBin().catch((err) => {
+            console.log(`[unit-cvMdToDocx] htmlToDocx.exe could not be obtained in before: ${err}`)
+        })
+    })
 
     after(function() {
         fs.rmSync(fdTmpRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 })

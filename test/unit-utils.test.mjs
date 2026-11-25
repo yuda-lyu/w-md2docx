@@ -21,6 +21,7 @@ import {
     normTocReq,
     normKeepReq
 } from '../src/utils.mjs'
+import { BIN_ENSURE_TIMEOUT_MS, ensureHtmlToDocxBin } from './tools/binEnsure.mjs'
 
 
 let sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -203,11 +204,28 @@ describe('utils', function() {
             }
         }
 
-        //fpExeReal: 本機預設快取內已備妥之轉檔器(實跑過 Word 轉檔或 ensureBins 者才有), 無則為空字串
-        let fpExeReal = path.resolve('./node_modules/w-html2docx/bin-cache', sha, fnExe)
-        if (!fs.existsSync(fpExeReal)) {
-            fpExeReal = ''
-        }
+        //fpExeReal: 本機快取內已備妥之轉檔器, 無則為空字串(其下 2 案略過)
+        //  於 before 取得後才判定, 不於載入時判定: mocha --parallel 下載入時快取可能尚空(剛安裝或 w-html2docx 升版後), 該 2 案會隨他檔之取得時序略過而非恆執行
+        //  Windows 時經 test/tools/binEnsure.mjs 集中取得(帶跨程序鎖, 與 unit-cvMdToDocx 等他檔同時取得時只下載一次, 規則帳本 R-TEST-2);
+        //  取得失敗(如無法連網下載)時維持原行為: 該 2 案略過並印出原因; 非 Windows 時不取得, 快取內已有者仍使用
+        let fpExeReal = ''
+
+        before(async function() {
+            this.timeout(BIN_ENSURE_TIMEOUT_MS)
+            if (process.platform === 'win32') {
+                await ensureHtmlToDocxBin()
+                    .then((r) => {
+                        fpExeReal = r.fp
+                    })
+                    .catch((err) => {
+                        console.log(`[unit-utils] htmlToDocx.exe could not be obtained: ${err}`)
+                    })
+            }
+            if (fpExeReal === '') {
+                let fp = path.resolve('./node_modules/w-html2docx/bin-cache', sha, fnExe)
+                fpExeReal = fs.existsSync(fp) ? fp : ''
+            }
+        })
 
         it('欄位與一致性: exePath與exeFound同進退, ready僅以作業系統為Windows判定', async function() {
             let r = await checkDocxReady()

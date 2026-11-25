@@ -176,6 +176,10 @@ let r = await WMd2docx.cvMdToDocx('./test/report.md', './test/report.docx', {
 - The ids end with the number the style had in the template that the package shipped before (`01` … `27`), whose style names were the same names with a three-letter prefix of a former owner, the number and the word `報告` in front (for example `<prefix>01報告封面(主標題)`), and the character-linked styles with the suffix ` 字元`. `temp.docx` keeps the page layout, fonts and paragraph formats of that template. Every style name of `temp.docx` is kept by Word when it converts (checked by the tests).
 - The properties of the document (author, last modified by, the name of the attached template and its link) are empty, and `temp.docx` has no attached template.
 
+## Tests
+
+> `npm test` (`mocha --parallel`) needs `Windows` and `Microsoft Word` for the real conversions. The tests that convert for real, and the cache cases of `unit-utils`, first get the converter `htmlToDocx.exe` of `w-html2docx` (about 9 MB) in one place: a `before` hook that calls `WHtml2docx.ensureBins()` (`test/tools/binEnsure.mjs`). The first time it is downloaded from `raw.githubusercontent.com` (or copied from the mirror `W_BIN_MIRROR`) and verified, afterwards it comes from the cache (`bin-cache/` in the folder of `w-html2docx`, or `W_BIN_CACHE`). With `wsemi` `1.9.75` or later the download takes a cross-process lock, so the workers of `mocha --parallel` download it once and the others wait and read the cache; the time limit of the hook follows the download budget of `wsemi` (11 minutes, 21 minutes with a mirror, plus one minute) instead of the 180 seconds of `--timeout`. A machine without network access sets `W_BIN_MIRROR` or fills the cache beforehand, see the section 外部執行檔 of the README of `w-html2docx`. Nothing else in the tests needs the network: `test/unit-binEnsure.test.mjs` uses a mirror on `127.0.0.1`, and the other tests use fake converters or local files.
+
 ## Breaking changes
 
 Changes after `1.0.18`, together with the dependencies `w-md2html` `^1.1.12` and `w-html2docx` `^1.0.40`:

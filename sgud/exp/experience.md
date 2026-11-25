@@ -54,6 +54,17 @@
 - **衍生「舊名樣式」模板的測法**:不附任何帶舊名之模板檔,測試內以 fflate 取 `temp.docx`、把 `styles.xml` 的 `<w:name w:val="報告目錄標題"/>` 換為其他名稱再寫到 `test/_tmp/<案名>/`,即得「只有舊名樣式」之模板;`prep` 層與真 Word 層皆可用.
 - **以 git HEAD 之 src 複本做「修改前」對照**:`git archive HEAD src | tar -x -C ./tmp/<夾>`,複本內之 `import` 由 `./tmp/<夾>` 往上找到 repo 根之 `node_modules`,探測腳本以環境變數指定 `SRC`;不用 `git stash`/`checkout`.
 
+## 轉檔器 htmlToDocx.exe 之集中取得與跨程序只取得一次(2026-11-25,R-TEST-2)
+
+- **盤查所列之站點須逐檔核實**:外部盤查稱 `unit-cvMdTo`、`unit-cvMdToDocxImg`、`api-rmApiServer` 真轉檔時隱式取得轉檔器,實查三者皆經 `runWithFakeHtml2docx`(子行程換假轉檔器)或 `out=html`,不取得.真隱式取得者只有 `unit-cvMdToDocx`(〈實轉〉、〈圖片內嵌於docx〉、〈轉檔器取得失敗…〉第2案之子行程);`unit-utils`〈checkDocxReady〉於載入時判斷預設快取有無轉檔器,故隨他檔之取得時序,2 個案略過(264 passing、3 pending)或執行(266 passing、1 pending).
+- **修前實測**(wsemi 1.9.74,清空 `node_modules/w-html2docx/bin-cache`,平行全套,以 `NODE_OPTIONS=--import` 預載包裝 `globalThis.fetch` 計對 `raw.githubusercontent.com` 之取檔次數):原佈局只下載 1 次(單一 worker),但 `unit-utils` 之 2 案略過.把新佈局(三個檔各於 `before` 取得)配舊 wsemi,同法實測下載 2 次(兩個 worker 相隔約 1.3 秒),即無鎖時多個消費檔同時冷啟動必重複下載;3 行程同取本機鏡像之案,舊 wsemi 鏡像被取 3 次,1.9.75 取 1 次且其餘 2 行程各有等候事件.
+- **w-html2docx 之 dist 不帶鎖**:`dist/w-html2docx.umd.js` 內嵌建置時之 wsemi,搜尋 `.lock-`、`lock-wait`、`E_LOCK_TIMEOUT` 皆 0 處;其 `src/ensureBins.mjs` 引用 `wsemi/src/fsEnsureBins.mjs`,由使用端 `node_modules/wsemi` 解析(w-html2docx 無巢狀 `node_modules`),故經 `src` 取得者隨使用端升級 wsemi 而帶鎖.產品碼 `src/cvMdToDocx.mjs` 與 `binEnsure.mjs` 皆引 `w-html2docx/src/WHtml2docx.mjs`;`unit-binEnsure` 以版本、同一份 wsemi(realpath)、import 陳述(行首錨定)、鎖逾時、多行程計數五處守住,工具改引 dist 之變異使 3 案轉紅.獨立複審發現:若鎖案與多行程案不經工具自身匯出之 `getBin`(測試檔與子行程各自 import `WHtml2docx`),改引 dist 之變異五案全綠——故測試與子行程皆經 `getBin`.
+- **取得單位之預算**:wsemi 之 `lockBudget`(`fsEnsureBinsCore.mjs`)= `n × totalMs + min(totalMs, 60000)`,單一檔無鏡像 n=1(預設 totalMs 600000 → 660000 毫秒),有鏡像 n=2;鎖之持有上限與等候上限同值,等候者每換一個持有者重新起算.wsemi 未匯出,測試端依原始碼複寫於 `binBudgetMs`,等候案以 `totalMs=1000`(預算 2000 毫秒,實測 2.0~3.3 秒:另含輪詢間隔至多約 1.5 秒)與有鏡像之 `totalMs=2000`(預算 6000 毫秒,無鏡像為 4000,故下限 5900 可分辨)對齊;`min(totalMs, 60000)` 之 60000 上限未以行為驗證(需 `totalMs` > 60000).等候者之 `totalMs` 不得小於持鎖者(w-html2docx 隱式取得用預設 600000).
+- **不連外網之鎖案作法**:①他方之鎖:在空快取夾內建 `.lock-<鍵>/owner.json`(鍵為 `'f/<sha256>/<name>'`〔Windows 轉小寫〕之 SHA-256 前 32 碼;持有者為本行程、持有上限 1 小時),`offline:true` 且無鏡像時 wsemi 只等候不建鎖,逾預算得 `E_LOCK_TIMEOUT`(帶 `holderPid`);②多行程:本機 `http` 鏡像(`listen(0)`;路徑 `/<pkg>/<sha256>/<name>`,內容為已取得之轉檔器)計次,第 1 個請求之回應扣住,至子行程回報 2 個已進入等候(`onProgress` 之 `wait` 事件,經 stdout 一行 JSON)或出現第 2 個請求才放行,以事件同步不以延時;子行程輸出須等 `stdout.write` 之 callback 再 `exit`.
+- **證明新測試有鑑別力之副本根**:`./tmp/<夾>/` 下自建 `node_modules/{w-html2docx,wsemi@舊版}` 與 `test/` 副本,在該夾為工作目錄跑(最近之 `node_modules` 優先,故巢狀舊 wsemi 勝出;`unit-binEnsure` 之版本案可印證解析結果);變異用 Edit 改副本,不動 repo.
+- **離線空快取找隱式取得者**:`W_BIN_CACHE=<空夾>`、`W_BIN_OFFLINE=1` 跑全套(R-TEST-2 之盤點;2026-11-25 實測 1 分鐘):不容忍之 `before` 因 `E_OFFLINE_MISSING` 失敗(3 處)、容忍型 `before` 印出 `could not be obtained`(2 行)、起子程序之案以 `[E_OFFLINE_MISSING]` 略過(1 案),三種訊號合計即隱式需要轉檔器者,與站點全集一致.
+- **產品面之連帶**:wsemi ≥ 1.9.75 起,離線且無鏡像之取得遇他方持鎖會等候(`checkDocxReady` 之 `exeFound` 診斷在他方下載期間會多等,至多一個預算),等候結束後讀快取.
+
 ## 其他
 
 - `package.json` 經 `npm i` 後檔尾多一個換行(原無),版本欄位不變.
