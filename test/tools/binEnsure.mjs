@@ -2,6 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import { createRequire } from 'module'
 import WHtml2docx from 'w-html2docx/src/WHtml2docx.mjs'
+import fsEnsureBinsBudget from 'wsemi/src/fsEnsureBinsBudget.mjs'
 
 
 //binEnsure: 測試端取得轉檔器 htmlToDocx.exe 之唯一入口(規則帳本 R-TEST-2)
@@ -13,10 +14,11 @@ import WHtml2docx from 'w-html2docx/src/WHtml2docx.mjs'
 //
 //取得函式(實際執行者): w-html2docx 之公開入口 WHtml2docx.ensureBins, 與產品碼(src/cvMdToDocx.mjs)引用同一模組 'w-html2docx/src/WHtml2docx.mjs'.
 //  其 src/ensureBins.mjs 引用 'wsemi/src/fsEnsureBins.mjs', 由本套件之 node_modules/wsemi 解析(wsemi ≥ 1.9.75 帶跨程序鎖).
-//  注意: w-html2docx 之 dist(UMD)內嵌其建置時之 wsemi(1.0.72 之 dist 不含跨程序鎖), 升級本套件之 wsemi 對經 dist 之取得無效;
-//  本套件之產品碼與測試皆引 src, 故有效; 此一前提由 test/unit-binEnsure.test.mjs 以版本、同一份 wsemi、import 陳述、鎖逾時與多行程只取得一次確認(測試全綠不證明只下載一次).
+//  注意: w-html2docx 之 dist(UMD)內嵌其建置時之 wsemi(1.0.72 之 dist 不含跨程序鎖, 1.0.73 起已含), 其內嵌之 wsemi 不隨本套件升級;
+//  本套件之產品碼與測試仍皆引 src, 取得所用之 wsemi 即本套件所裝者; 此一前提由 test/unit-binEnsure.test.mjs 以版本、同一份 wsemi、import 陳述、鎖逾時與多行程只取得一次確認(測試全綠不證明只下載一次).
 //
 //不另寫下載、快取、鏡像、校驗: 全交 w-html2docx 之 ensureBins(即 wsemi 之 fsEnsureBins); 本檔只給時限、觀察事件與一行取得紀錄.
+//時限不自寫算式: 取得預算全由 wsemi 之 fsEnsureBinsBudget 求得(與鎖之持有與等候上限同一算式, 單一來源; 制式規格〈外部執行檔之存放下載校驗與離線〉§6 E5-3).
 
 
 //BIN_NAME: 轉檔器名稱(w-html2docx 之 bin/manifest.json 之 name)
@@ -25,24 +27,41 @@ let BIN_NAME = 'htmlToDocx.exe'
 
 //BIN_TOTAL_MS: 交 opt.totalMs 之值(每次下載之整體時間上限, 毫秒), 取 wsemi 之預設 600000.
 //  與 w-html2docx 轉檔時之隱式取得(只給 names, 用預設)同值: 持鎖者之持有上限依其 totalMs 推得, 等候者之 totalMs 不得小於持鎖者,
-//  否則持鎖者尚未逾上限時, 等候者已先 E_LOCK_TIMEOUT
+//  否則持鎖者尚未逾上限時, 等候者已先 E_LOCK_TIMEOUT; 亦不短於 wsemi 之預設(傳給下載函式之每檔上限不短於其預設)
 let BIN_TOTAL_MS = 600000
 
 
-//binBudgetMs: wsemi 對單一檔(非壓縮檔)之取得預算(毫秒), 即鎖之持有上限與等候上限(fsEnsureBinsCore.mjs 之 lockBudget)
-//  預算 = n × totalMs + min(totalMs, 60000)
-//  n 為可能之下載次數: 無鏡像 1; 有鏡像(opt.mirror 或環境變數 W_BIN_MIRROR)2(先試鏡像再試來源); min(totalMs, 60000) 為校驗、更名、刪暫存之餘裕
-function binBudgetMs(mirror = false, totalMs = BIN_TOTAL_MS) {
-    let n = mirror ? 2 : 1
-    return n * totalMs + Math.min(totalMs, 60000)
+//BIN_PARALLEL_FACTOR: 並行之取得時限倍數. 並行時等候者最壞情形: 先等他方一個預算, 他方失敗(逾其上限)才自行取得再一個預算, 故首次取得之時限取約兩倍預算(規格 E5-3)
+let BIN_PARALLEL_FACTOR = 2
+
+
+//getHtml2docxRoot: w-html2docx 之套件根(其 bin/manifest.json 所屬之套件; 與 w-html2docx 之 src/ensureBins.mjs 傳給 fsEnsureBins 之 pkgRoot 同一處)
+function getHtml2docxRoot() {
+    return path.dirname(createRequire(import.meta.url).resolve('w-html2docx/package.json'))
 }
 
 
-//BIN_ENSURE_TIMEOUT_MS: before 之 mocha 時限(毫秒) = 取得預算 + 60 秒(事件回調與一行紀錄之餘裕);
+/**
+ * 求取得 htmlToDocx.exe 之預算(毫秒), 即 wsemi 之 fsEnsureBinsBudget 對 w-html2docx 之 bin/manifest.json 與 names=BIN_NAME 之值(同為鎖之持有上限與等候上限)
+ *
+ * 選項之意義與預設同 getBin(totalMs 預設 BIN_TOTAL_MS, 未給 mirror、offline 時讀環境變數 W_BIN_MIRROR、W_BIN_OFFLINE); 與 getBin 給同一組選項者, 其值即該次取得之預算
+ *
+ * @param {Object} [opt={}] 輸入設定物件, 交 fsEnsureBinsBudget(mirror、offline、totalMs 等); names、pkgRoot 固定
+ * @returns {Number} 回傳預算毫秒數
+ */
+function binBudgetMs(opt = {}) {
+    //舊簽章為 binBudgetMs(mirror布林, totalMs): 傳入非物件者(舊呼叫)明確拒絕, 不靜默回預設預算
+    if (opt === null || typeof opt !== 'object') {
+        throw new TypeError('binBudgetMs(opt): opt should be an object, such as { mirror, offline, totalMs }')
+    }
+    return fsEnsureBinsBudget('bin/manifest.json', { totalMs: BIN_TOTAL_MS, ...opt, names: BIN_NAME, pkgRoot: getHtml2docxRoot() })
+}
+
+
+//BIN_ENSURE_TIMEOUT_MS: before 之 mocha 時限(毫秒) = BIN_PARALLEL_FACTOR(2) × 取得預算 + 60 秒(事件回調與一行紀錄之餘裕);
 //  預設 mocha --timeout 180000 短於下載預算, 故呼叫 ensureHtmlToDocxBin() 之 before 須自給 this.timeout(BIN_ENSURE_TIMEOUT_MS);
-//  隨環境有無 W_BIN_MIRROR 取有鏡像或無鏡像之預算(env 為行程啟動時之值, 本檔載入時讀取)
-//  最壞情形(持鎖者近其上限才失敗, 本行程接手後再下載一次)之總時間可達約 2 倍預算, 屬極端情形, 不另加長時限
-let BIN_ENSURE_TIMEOUT_MS = binBudgetMs(typeof process.env.W_BIN_MIRROR === 'string' && process.env.W_BIN_MIRROR.trim() !== '') + 60000
+//  預算隨環境有無 W_BIN_MIRROR 而異, 由 fsEnsureBinsBudget 讀取(env 為行程啟動時之值, 本檔載入時求得)
+let BIN_ENSURE_TIMEOUT_MS = BIN_PARALLEL_FACTOR * binBudgetMs() + 60000
 
 
 //本行程之取得(記憶): 同一行程內多個 describe 呼叫只取得一次; 失敗不記憶, 下次呼叫重取
@@ -107,8 +126,7 @@ function ensureHtmlToDocxBin() {
 
 //getWsemiOfHtml2docx: w-html2docx 之 src(實際執行取得函式者)解析到之 wsemi, 回傳 { version, fd(wsemi 之資料夾), fdWh(w-html2docx 之資料夾) }
 function getWsemiOfHtml2docx() {
-    let req = createRequire(import.meta.url)
-    let fdWh = path.dirname(req.resolve('w-html2docx/package.json'))
+    let fdWh = getHtml2docxRoot()
     let reqWh = createRequire(path.join(fdWh, 'src', 'ensureBins.mjs'))
     let fpPkg = reqWh.resolve('wsemi/package.json')
     let version = JSON.parse(fs.readFileSync(fpPkg, 'utf8')).version
