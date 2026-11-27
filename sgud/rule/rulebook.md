@@ -49,7 +49,17 @@
 - 規則:`checkDocxReady()`(async)以 `WHtml2docx.ensureBins({ offline: true, mirror: '' })` 判斷轉檔器是否已備妥於 w-html2docx 之快取(只看快取、不連網、不用鏡像、命中亦校驗);任何失敗皆視為未備妥;`ready` 僅以作業系統為 Windows 判定.不得以此事前攔截轉檔(否則下層取得機制永遠不被執行).
 - 上層不得重寫下層之偵測規則(使用者裁示,2026-09-13;2026-11-22 自自動記憶提取,取代原「見記憶 no-upper-layer-precheck」之指向):包裝自有套件(w-*)時,資源(執行檔、模板等)之定位、缺檔補齊與可用性判斷一律交給擁有該資源之下層套件;上層不得複製其查找規則做事前檢查、狀態守門或測試守門.起因:曾以自寫之 `getFpExe()`(與 w-html2docx 同規則、只查不補)在呼叫 `WHtml2docx` 前攔截,使 w-html2docx 1.0.28 新增之「缺 htmlToDocx.exe 時自動取得」永遠不執行,消費端升版後第一次產 docx 必失敗而兩度中斷報告產製(`getFpExe` 已移除,見〈三、破壞性變更紀錄〉).使用者原話:「該不會這邊自己自作主張偵測並報錯中斷,導致原本可以自動下載的機制反而被這邊搞砸」.作法:讀到上層碼含「與下層同規則」「事前檢查」字樣即視為補丁,直接呼叫下層、失敗時補充訊息(可附 cwd 等脈絡),不預判;狀態回報欄位(`exeFound`/`exePath`)只作診斷,不得讓「目前缺檔」推導出「不可用」;驗收一律模擬消費端 `npm i` 後之自然狀態(缺檔、快取空)而非手動補齊環境(不手動下載或搬移執行檔);訊息脈絡不足屬下層問題,建議於下層收斂,不在上層比對文字補救.
 - 站點:`src/utils.mjs` `checkDocxReady`;使用處 `src/rmApiServer.mjs` `getState`(`GET /api/health`).
-- 測試:`test/unit-utils.test.mjs`〈checkDocxReady〉(快取空、校驗不符、命中、鏡像不取用)、`test/api-rmApiServer.test.mjs`(health 欄位).
+- 測試:`test/unit-utils.test.mjs`〈checkDocxReady〉(快取空、校驗不符、命中、鏡像不取用)、`test/api-rmApiServer.test.mjs`(health 欄位).他程序持鎖之情境見 R-DIAG-2.
+
+### R-DIAG-2 `checkDocxReady`(`GET /api/health`)不等候他程序之轉檔器取得鎖,改回 `exeDownloading: true`(2026-11-28,md685)
+
+- 規則:他程序正取得(下載)轉檔器而持有 wsemi `fsEnsureBins` 之跨程序取得鎖(規則 R-BIN-ENSURE-01 規則 19)時,`ensureBins({ offline: true, mirror: '' })` 於快取未命中會等候該鎖(至多一個取得預算,預設無鏡像 660000 毫秒);診斷用之 health 不得因此無回應.作法:`checkDocxReady` 於 `ensureBins` 之公開選項 `onProgress` 收到 `step: 'wait'`(wsemi JSDoc 載明:開始等候他程序持有之鎖)時,立即回傳 `exeFound: false`、`exePath: ''`、`exeDownloading: true`,其餘欄位(`platform`、`isWindows`、`cwd`、`ready`)照給;此時 `exeFound` 為 false 並非缺檔,待他程序取得完成後再呼叫即反映快取現況.`GET /api/health` 與 `getState` 帶同名欄位 `exeDownloading`.
+- 單一探測:行程內同一時間只有一個進行中之探測(`binProbe`,所有呼叫共用其狀態),不因每次呼叫另起一個等候者.why:wsemi 對來源設定相同之併發呼叫共用同一次取得,其 `onProgress` 只通知最先呼叫者,後來者收不到 `wait`,故「是否已進入等候」須由本層保存;背景等候於他程序釋放鎖或逾 wsemi 之預算後由 `ensureBins` 自行結束,結果丟棄,落定時同步清除探測(其後之呼叫另起新探測);任何失敗(含同步拋錯)皆視為未備妥.
+- 禁止:①讀鎖檔、推算快取或鎖之位置(違 L0e:自有套件之內部格式屬其主責;`test/tools/foreignBinLock.mjs` 只用於測試自建之快取夾);②以計時器上限(如 2 秒)判定「下載中」——高負載時快取命中之 SHA-256 校驗可逾上限,把已備妥誤報為未備妥,且仍須另設單一探測才不累積;③以 `exeDownloading` 或 `exeFound` 守門轉檔(R-DIAG-1).
+- 站點:`src/utils.mjs` `checkDocxReady`、`startBinProbe`、`binProbe`;`src/rmApiServer.mjs` `getState`(`exeDownloading`).盤點:Grep `checkDocxReady`(`src/` 內僅 `getState` 一處呼叫).
+- 測試:`test/unit-utils.test.mjs`〈checkDocxReady〉〈他行程持有取得鎖〉5 案(持鎖不等候、持鎖期間重複與併發不累積〔`ensureBins` 只呼叫 1 次〕、他方釋放後恢復、他方下載完成後釋放、快取命中不受影響)與既有案之 `exeDownloading` 欄位;`test/api-rmApiServer.test.mjs`〈GET /api/health: 他行程持有轉檔器取得鎖時不等候〉.替身持鎖與「記錄用轉呼叫包覆 `WHtml2docx.ensureBins`」之共用工具 `test/tools/foreignBinLock.mjs`(`mkForeignLock`、`rmForeignLock`、`withForeignBinLock`;`unit-binEnsure` 之鎖逾時案同用之,原內嵌之 `mkForeignLock` 已移入).同步點為 Promise 落定與 `setImmediate` 巨任務邊界(事件),防懸置上限由 `withForeignBinLock` 持有(逾時移除替身鎖並令 `guarded` 為 true,測試斷言其為 false),不以 `sleep` 後斷言.
+- 判準:修前紅(不改 `src/`,新測試對舊碼)10 failing(持鎖 5 案依防懸置上限轉紅〔`guarded`〕,另 5 案因新欄位缺);變異 9 項皆轉紅(取消單一探測、事件名改錯、落定後不清除、欄位恆 false、`wait` 時回 false、落定時回 true、`offline` 改 false、`getState` 欄位恆 false、`getState` 不帶欄位).
+- 殘餘:背景等候期間 `ensureBins` 仍以 50 毫秒起漸增至 1 秒之間隔輪詢他程序之鎖,至多一個取得預算;若 wsemi 提供「不等鎖之查詢」(例:`lockWait: false`)可改用以免此輪詢(見 `sgud/feedback/feedback.md`).
 
 ### R-HINT-1 w-html2docx 失敗訊息之提示(原文保留、附指引)
 
@@ -104,7 +114,7 @@
 - 站點全集(2026-11-25):`unit-cvMdToDocx.test.mjs`〈實轉〉、〈圖片內嵌於docx〉、〈轉檔器取得失敗與預設模板查找失敗之訊息〉(第2案之子程序真轉檔);`unit-utils.test.mjs`〈checkDocxReady〉(2 個快取案,原於載入時判定快取、隨他檔之取得時序略過,現於 `before` 取得後判定);`unit-binEnsure.test.mjs`(自身).不需接線者:`unit-cvMdTo`、`unit-cvMdToDocxImg`、`api-rmApiServer`(假轉檔器;`GET /api/health` 之 `exeFound` 為診斷,只看快取)、`api-rmApiClient`(假服務)、`unit-addDocxToc`、`unit-docxToc`、`unit-docxKeep`.
 - 判準:上列站點皆經 `ensureHtmlToDocxBin()`;`unit-binEnsure` 全綠(版本≥1.9.76 且與本套件同一份 wsemi、產品碼與工具皆引 src、時限取自 `fsEnsureBinsBudget` 並含並行倍數、他方持鎖時等候並以 `E_LOCK_TIMEOUT` 逾時〔無鏡像、有鏡像各一案〕、3 行程同取經本機鏡像只取 1 次且有等候事件、失敗不記憶;共 7 案);清空 `node_modules/w-html2docx/bin-cache` 後平行全套 `htmlToDocx.exe` 只下載 1 次.
 - 測試:`test/unit-binEnsure.test.mjs`(不連外網:鎖與多行程案用自建空快取夾與本機 http 鏡像,內容為已取得之轉檔器;子行程 `test/tools/binEnsureChild.mjs` 經 `binEnsure.mjs` 之 `getBin`,即 `before` 實際使用之綁定).此檔不驅動 Word,符合 R-TEST-1.
-- 相依影響(產品面,非本規則所改):wsemi ≥ 1.9.75 起,離線且無鏡像之取得(`checkDocxReady` 即 `GET /api/health` 之 `exeFound`)遇他方正持鎖下載同一檔時會等候(至多一個預算),不再立即回缺檔;等候結束後讀快取,診斷結果更貼近事實.
+- 相依影響(產品面,非本規則所改):wsemi ≥ 1.9.75 起,離線且無鏡像之取得(`checkDocxReady` 即 `GET /api/health` 之 `exeFound`)遇他方正持鎖下載同一檔時會等候(至多一個預算),不再立即回缺檔;2026-11-27 全庫連動跟跑時 `api-rmApiClient` 之 health 4 案因此各逾時 20 秒.已於 R-DIAG-2 處理:health 不等候,改回 `exeDownloading: true`.
 
 ## 二、改動範圍 → 測試檔對照
 
@@ -118,6 +128,7 @@
 | `src/docxKeep.mjs`、`docxXml.mjs` | `unit-docxKeep`、`unit-cvMdToDocx` |
 | `src/rmApiServer.mjs`、`rmApiClient.mjs` | `api-rmApiServer`、`api-rmApiClient` |
 | 升 w-md2html / w-html2docx | 全套 `npm test`(真 Word,經 `quiet-run --lock`) |
+| `src/utils.mjs` 之 `checkDocxReady`、`src/rmApiServer.mjs` 之 `getState`、`test/tools/foreignBinLock.mjs`(R-DIAG-2) | `unit-utils`〈checkDocxReady〉、`api-rmApiServer`、`unit-binEnsure`(同用 `mkForeignLock`)、`api-rmApiClient`(health) |
 | 升 wsemi、`test/tools/binEnsure.mjs`、`binEnsureChild.mjs`、任一測試檔之 `ensureHtmlToDocxBin` 接線(R-TEST-2) | `unit-binEnsure`、`unit-utils`、`unit-cvMdToDocx`;收尾清空 `node_modules/w-html2docx/bin-cache`(先確認無目錄連結)後平行全套,以 fetch 計數或事件確認只下載 1 次 |
 | 新增或搬移啟動 Word 之測試、`test/tools/tocFixture.mjs` | `unit-cvMdToDocx`、`unit-addDocxToc`,並依 R-TEST-1 之盤點確認他檔不啟動 Word;收尾跑全套(`--parallel` 之跨檔交錯只在全套出現) |
 

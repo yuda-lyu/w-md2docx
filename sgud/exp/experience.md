@@ -64,7 +64,18 @@
 - **不連外網之鎖案作法**:①他方之鎖:在空快取夾內建 `.lock-<鍵>/owner.json`(鍵為 `'f/<sha256>/<name>'`〔Windows 轉小寫〕之 SHA-256 前 32 碼;持有者為本行程、持有上限 1 小時),`offline:true` 且無鏡像時 wsemi 只等候不建鎖,逾預算得 `E_LOCK_TIMEOUT`(帶 `holderPid`);②多行程:本機 `http` 鏡像(`listen(0)`;路徑 `/<pkg>/<sha256>/<name>`,內容為已取得之轉檔器)計次,第 1 個請求之回應扣住,至子行程回報 2 個已進入等候(`onProgress` 之 `wait` 事件,經 stdout 一行 JSON)或出現第 2 個請求才放行,以事件同步不以延時;子行程輸出須等 `stdout.write` 之 callback 再 `exit`.
 - **證明新測試有鑑別力之副本根**:`./tmp/<夾>/` 下自建 `node_modules/{w-html2docx,wsemi@舊版}` 與 `test/` 副本,在該夾為工作目錄跑(最近之 `node_modules` 優先,故巢狀舊 wsemi 勝出;`unit-binEnsure` 之版本案可印證解析結果);變異用 Edit 改副本,不動 repo.
 - **離線空快取找隱式取得者**:`W_BIN_CACHE=<空夾>`、`W_BIN_OFFLINE=1` 跑全套(R-TEST-2 之盤點;2026-11-25 實測 1 分鐘):不容忍之 `before` 因 `E_OFFLINE_MISSING` 失敗(3 處)、容忍型 `before` 印出 `could not be obtained`(2 行)、起子程序之案以 `[E_OFFLINE_MISSING]` 略過(1 案),三種訊號合計即隱式需要轉檔器者,與站點全集一致.
-- **產品面之連帶**:wsemi ≥ 1.9.75 起,離線且無鏡像之取得遇他方持鎖會等候(`checkDocxReady` 之 `exeFound` 診斷在他方下載期間會多等,至多一個預算),等候結束後讀快取.
+- **產品面之連帶**:wsemi ≥ 1.9.75 起,離線且無鏡像之取得遇他方持鎖會等候(`checkDocxReady` 之 `exeFound` 診斷在他方下載期間會多等,至多一個預算),等候結束後讀快取.2026-11-28(md685)已處理:見下節與 R-DIAG-2.
+
+## health 不等候他程序之轉檔器取得鎖(2026-11-28,md685,R-DIAG-2)
+
+- **起因與重現**:全庫連動跟跑時,他測試正下載新版轉檔器(持有取得鎖),並行之 `api-rmApiClient` health 4 案各逾時 20 秒(單檔重跑全過).以替身持鎖(測試自建快取夾內放 `.lock-<鍵>/owner.json`,持有者為本行程、上限一小時,不下載)重現:現行 `checkDocxReady` 5 秒內不回應,直到移除替身鎖才結束(約 0.6~1.3 秒後落定,輪詢間隔所致);探測腳本於 `./tmp/md685/`(結案清除).
+- **公開通知已足夠,不必改上游**:wsemi 1.9.83 之 `fsEnsureBins` 無「不等鎖」選項,但 `onProgress` 之 `step: 'wait'`(JSDoc 載明「開始等候他程序持有之鎖,含 pid」)於進入等候當下(實測 5 毫秒內)即通知;w-html2docx 之 `ensureBins` 以 `...o` 透傳選項.故產品碼只用公開之 `onProgress`,不讀鎖檔、不推算位置(L0e;R-DIAG-1 之「上層不得重寫下層偵測規則」亦同).
+- **陷阱:同程序併發呼叫共用同一次取得,`onProgress` 只通知最先呼叫者**(wsemi 〈併發〉:來源設定相同之併發呼叫共用同一次取得).實測先呼叫現行 `checkDocxReady` 再另呼叫帶回調之 `ensureBins`,後者之事件只有 `manifest`、`job`,收不到 `wait`.故「是否已進入等候」須由本層以單一進行中之探測(`binProbe`)保存、供所有呼叫共用;每次呼叫各自帶回調而不共用狀態者,第二次起即被卡住,且每次另起等候者會累積.
+- **為何不用計時器上限**(如 2 秒):快取命中亦校驗 SHA-256(約 9 MB),CPU 高負載時可逾上限而把已備妥誤報為「下載中/未知」;事件判定只在 wsemi 自述「正在等他程序持有之鎖」時才回 `exeDownloading: true`.且無論計時器與否,背景之探測都須單一化才不累積.
+- **測試作法**:替身持鎖與記錄用轉呼叫包覆 `WHtml2docx.ensureBins`(轉呼叫真實函式,不換替身;產品碼與測試引用同一模組,故包覆即見效)集中於 `test/tools/foreignBinLock.mjs`;防懸置上限由工具持有:逾時移除替身鎖使「不該等候而等候」之被測物落定,並令 `guarded` 為 true 供測試斷言——使修前碼之紅燈為斷言失敗(約 8 秒)而非整檔懸置、行程不退出(輪詢之計時器會使 mocha 不結束).釋放後之同步點:`Promise.allSettled(記錄之 pm)` 後再等一個 `setImmediate`(巨任務邊界,微任務佇列已清空,產品碼清除探測之接續已完成);此邊界為防禦性:依微任務次序推演,產品碼清除探測之接續比測試之 `allSettled` 續行多數個微任務,測試續行可能早於它;但實測拿掉 `setImmediate` 邊界(變異)連跑 10 次皆全過(Node v24),即此環境下單靠 `allSettled` 亦穩,未能以實測證明其必要,保留以不依賴微任務之次序.
+- **修前紅與變異**(先紅後綠):新測試對未改之 `src/` 跑,10 failing(5 案為防懸置上限轉紅:持鎖 4 案與 api 1 案;5 案僅因新欄位缺);修後 80 passing(`unit-utils` + `api-rmApiServer`);變異 9 項(取消單一探測 → 僅「不累積」案紅;事件名改錯、`wait` 時回 false、欄位恆 false → 持鎖各案紅;落定後不清除 → 9 案紅;落定時回 true、`offline` 改 false;`getState` 欄位恆 false 或不帶)皆轉紅,腳本 `./tmp/md685/mutate.mjs` 錨點須恰出現 1 次且逐項還原後以位元組核對.
+- **穩定度**:`unit-utils`＋`api-rmApiServer` 連跑 20 次皆 80 passing、0 failing、0 pending(每次約 12.3~12.8 秒);全套 `npm test`(經 `quiet-run --lock-word`)279 passing、1 pending、0 failing.未做:另一種配置(發布包解開之目錄)之全套(本輪只改健康診斷之路徑,未改發布內容).
+- **殘餘**:背景等候仍以 50 毫秒起漸增至 1 秒之間隔輪詢鎖資料夾,至多一個取得預算(預設 660000 毫秒);wsemi 若提供「不等鎖」之查詢可免此輪詢(已記回饋).
 
 ## 其他
 

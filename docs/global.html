@@ -1245,7 +1245,7 @@ console.log(r)
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="utils.mjs.html">utils.mjs</a>, <a href="utils.mjs.html#line251">line 251</a>
+        <a href="utils.mjs.html">utils.mjs</a>, <a href="utils.mjs.html#line292">line 292</a>
     </li></ul></dd>
     
 
@@ -1387,7 +1387,7 @@ console.log(r)
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="utils.mjs.html">utils.mjs</a>, <a href="utils.mjs.html#line231">line 231</a>
+        <a href="utils.mjs.html">utils.mjs</a>, <a href="utils.mjs.html#line272">line 272</a>
     </li></ul></dd>
     
 
@@ -1549,13 +1549,15 @@ console.log(r)
     <dd class="tag-description"><ul class="dummy"><li><p>檢查本機是否具備docx轉檔條件</p>
 <p>ready僅以作業系統為Windows判定，不以轉檔器是否存在為條件：exeFound為false代表轉檔器目前尚未備妥(不在w-html2docx之快取內)，將於首次轉檔時由w-html2docx取得，並非不可用。</p>
 <p>exeFound與exePath以w-html2docx之ensureBins({offline:true,mirror:''})判斷：只看快取、不連網、不用鏡像，快取命中者亦校驗SHA-256與大小，故不會下載；校驗不符之快取檔會被其刪除。</p>
+<p>他程序正取得(下載)轉檔器而持有跨程序取得鎖時，ensureBins於快取未命中時會等候該鎖(至多一個取得預算，可達十餘分鐘)；本函數不等候該下載：依ensureBins之onProgress通知(step為wait，即開始等候他程序持有之鎖)立即回傳exeFound為false、exePath為空字串、exeDownloading為true，其餘欄位照給。此時exeFound為false並非缺檔，待他程序取得完成後再呼叫即反映快取現況。
+行程內同一時間只有一個探測(進行中者共用，不因每次呼叫另起一個等候者)；背景之等候於他程序釋放鎖或逾其預算後自行結束，結果丟棄(下次呼叫另起新探測)。</p>
 <p>注意：不得作為轉檔前之守門。查無不代表無法轉檔——w-html2docx於轉檔當下會取得缺少之轉檔器，上層以此攔截會使該機制永遠不被執行；亦僅代表環境條件成立，不代表轉檔器可取得或Word確實可被調用，後二者須實際轉一份小檔驗證。</p></li></ul></dd>
     
 
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="utils.mjs.html">utils.mjs</a>, <a href="utils.mjs.html#line195">line 195</a>
+        <a href="utils.mjs.html">utils.mjs</a>, <a href="utils.mjs.html#line198">line 198</a>
     </li></ul></dd>
     
 
@@ -1603,7 +1605,7 @@ console.log(r)
     <h5 class="h5-examples">Example</h5>
     
     <pre class="prettyprint"><code>console.log(await checkDocxReady())
-// => { platform: 'win32', isWindows: true, cwd: '...', exePath: 'C:\\proj\\node_modules\\w-html2docx\\bin-cache\\b9d244e2…\\htmlToDocx.exe', exeFound: true, ready: true }</code></pre>
+// => { platform: 'win32', isWindows: true, cwd: '...', exePath: 'C:\\proj\\node_modules\\w-html2docx\\bin-cache\\b9d244e2…\\htmlToDocx.exe', exeFound: true, exeDownloading: false, ready: true }</code></pre>
 
 
 
@@ -1626,7 +1628,7 @@ console.log(r)
 
         
 <div class="param-desc">
-    <p>回傳Promise，resolve回傳狀態物件{platform,isWindows,cwd,exePath,exeFound,ready}，exePath與exeFound為轉檔器在快取內之位置與是否已備妥(診斷用)</p>
+    <p>回傳Promise，resolve回傳狀態物件{platform,isWindows,cwd,exePath,exeFound,exeDownloading,ready}，exePath與exeFound為轉檔器在快取內之位置與是否已備妥，exeDownloading為他程序是否正取得轉檔器(診斷用)</p>
 </div>
 
 
@@ -1853,7 +1855,7 @@ console.log(r)
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="utils.mjs.html">utils.mjs</a>, <a href="utils.mjs.html#line415">line 415</a>
+        <a href="utils.mjs.html">utils.mjs</a>, <a href="utils.mjs.html#line456">line 456</a>
     </li></ul></dd>
     
 
@@ -6195,7 +6197,7 @@ console.log(r)
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="utils.mjs.html">utils.mjs</a>, <a href="utils.mjs.html#line559">line 559</a>
+        <a href="utils.mjs.html">utils.mjs</a>, <a href="utils.mjs.html#line600">line 600</a>
     </li></ul></dd>
     
 
@@ -6542,7 +6544,7 @@ console.log(r)
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="utils.mjs.html">utils.mjs</a>, <a href="utils.mjs.html#line513">line 513</a>
+        <a href="utils.mjs.html">utils.mjs</a>, <a href="utils.mjs.html#line554">line 554</a>
     </li></ul></dd>
     
 
@@ -6951,7 +6953,7 @@ console.log(normReqOpt({ a: 1, b: 2 }, ['b']))
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="utils.mjs.html">utils.mjs</a>, <a href="utils.mjs.html#line541">line 541</a>
+        <a href="utils.mjs.html">utils.mjs</a>, <a href="utils.mjs.html#line582">line 582</a>
     </li></ul></dd>
     
 
@@ -8243,7 +8245,7 @@ console.log(normReqOpt({ a: 1, b: 2 }, ['b']))
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="utils.mjs.html">utils.mjs</a>, <a href="utils.mjs.html#line334">line 334</a>
+        <a href="utils.mjs.html">utils.mjs</a>, <a href="utils.mjs.html#line375">line 375</a>
     </li></ul></dd>
     
 
@@ -8758,7 +8760,7 @@ console.log(normReqOpt({ a: 1, b: 2 }, ['b']))
     <dd class="tag-description"><ul class="dummy"><li><p>建立並啟動Markdown轉Html/Docx之API服務</p>
 <p>以hapi提供三個端點：GET /api/health(健康檢查與環境狀態)、GET /api/selftest(實跑一次最小轉檔驗證本機Word可用)、POST /api/convert(轉檔主端點，JSON參數同cvMdTo，另可用templateName指定服務端模板或templateBase64夾帶模板；query帶download=1時單一格式直接回傳二進位檔)。</p>
 <p>請求之keepCaption(true或{labels})轉傳cvMdTo使圖名表名與其圖表同頁；請求之toc(true或addDocxToc之設定物件)轉傳cvMdTo以添加目錄，其timeoutMs不採用(Word更新之逾時由服務端決定)；兩者之結果隨回應傳回。</p>
-<p>回應之docx與html以base64置於單一JSON字串，受字串長度上限限制：兩者base64字元數合計超過上限(約401,866,734位元組之檔案)時回500與指出原因之訊息，服務不中止；圖片本身不受此限(docx階段以圖檔路徑引用，不內嵌base64)。請求大小上限opt.maxMb則限制夾帶之資產與模板。GET /api/health之exeFound與exePath為轉檔器是否已備妥於w-html2docx之快取(診斷用)。</p></li></ul></dd>
+<p>回應之docx與html以base64置於單一JSON字串，受字串長度上限限制：兩者base64字元數合計超過上限(約401,866,734位元組之檔案)時回500與指出原因之訊息，服務不中止；圖片本身不受此限(docx階段以圖檔路徑引用，不內嵌base64)。請求大小上限opt.maxMb則限制夾帶之資產與模板。GET /api/health之exeFound與exePath為轉檔器是否已備妥於w-html2docx之快取(診斷用)；他行程正下載轉檔器(持有取得鎖)時不等候該下載，立即回應exeFound為false與exeDownloading為true(此時並非缺檔)。</p></li></ul></dd>
     
 
     
@@ -10275,7 +10277,7 @@ console.log(toErrText(new Error('abc')))
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="utils.mjs.html">utils.mjs</a>, <a href="utils.mjs.html#line280">line 280</a>
+        <a href="utils.mjs.html">utils.mjs</a>, <a href="utils.mjs.html#line321">line 321</a>
     </li></ul></dd>
     
 
@@ -10443,7 +10445,7 @@ console.log(toSafeName(''))
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="utils.mjs.html">utils.mjs</a>, <a href="utils.mjs.html#line468">line 468</a>
+        <a href="utils.mjs.html">utils.mjs</a>, <a href="utils.mjs.html#line509">line 509</a>
     </li></ul></dd>
     
 
@@ -10924,7 +10926,7 @@ console.log(toSafeName(''))
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="utils.mjs.html">utils.mjs</a>, <a href="utils.mjs.html#line373">line 373</a>
+        <a href="utils.mjs.html">utils.mjs</a>, <a href="utils.mjs.html#line414">line 414</a>
     </li></ul></dd>
     
 
@@ -11326,7 +11328,7 @@ console.log(toSafeName(''))
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Fri Nov 27 2026 22:39:08 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 4.0.5</a> on Sat Nov 28 2026 05:23:32 GMT+0800 (台北標準時間) using the <a href="https://github.com/clenemt/docdash">docdash</a> theme.
 </footer>
 
 <script>prettyPrint();</script>

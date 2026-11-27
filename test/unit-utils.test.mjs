@@ -22,6 +22,7 @@ import {
     normKeepReq
 } from '../src/utils.mjs'
 import { BIN_ENSURE_TIMEOUT_MS, ensureHtmlToDocxBin } from './tools/binEnsure.mjs'
+import { withForeignBinLock } from './tools/foreignBinLock.mjs'
 
 
 let sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -237,6 +238,10 @@ describe('utils', function() {
                 assert.strict.equal(fs.existsSync(r.exePath), true)
                 assert.strict.equal(path.basename(r.exePath), fnExe)
             }
+            assert.strict.equal(typeof r.exeDownloading, 'boolean') //他行程正取得轉檔器(持鎖)時為true; 預設快取可能正被他測試檔取得, 故只驗型別與一致性
+            if (r.exeDownloading) {
+                assert.strict.equal(r.exeFound, false)
+            }
             assert.strict.equal(r.ready, r.isWindows) //ready不以轉檔器存在為條件(缺檔於首次轉檔時由w-html2docx取得)
         })
 
@@ -246,6 +251,7 @@ describe('utils', function() {
             let r = await withEnv({ W_BIN_CACHE: fdCache, W_BIN_OFFLINE: undefined, W_BIN_MIRROR: undefined }, () => checkDocxReady())
             assert.strict.equal(r.exeFound, false)
             assert.strict.equal(r.exePath, '')
+            assert.strict.equal(r.exeDownloading, false) //無他方持鎖
             assert.strict.equal(r.ready, process.platform === 'win32')
             assert.strict.deepEqual(fs.readdirSync(fdCache), [])
         })
@@ -271,6 +277,7 @@ describe('utils', function() {
             let r = await withEnv({ W_BIN_CACHE: fdCache, W_BIN_OFFLINE: undefined, W_BIN_MIRROR: undefined }, () => checkDocxReady())
             assert.strict.equal(r.exeFound, true)
             assert.strict.equal(r.exePath, fpHit)
+            assert.strict.equal(r.exeDownloading, false)
         })
 
         it('只看快取: 環境變數之鏡像內有檔也不取用(不複製入快取)', async function() {
@@ -288,6 +295,118 @@ describe('utils', function() {
             assert.strict.equal(r.exeFound, false)
             assert.strict.equal(r.exePath, '')
             assert.strict.deepEqual(fs.readdirSync(fdCache), [])
+        })
+
+        //他行程持有取得鎖(R-DIAG-2): 以替身持鎖(test/tools/foreignBinLock.mjs, 不下載), 被測物不得等候他方之鎖
+        //  同步點為「checkDocxReady 之 Promise 落定」(事件), 非延時; 防懸置上限由 withForeignBinLock 持有(逾時移除替身鎖並令 guarded 為 true), 不以 sleep 後斷言
+        describe('他行程持有取得鎖', function() {
+
+            it('持鎖時不等候: exeFound為false、exePath為空字串、exeDownloading為true, ready仍僅以作業系統判定; 仍經w-html2docx之ensureBins(離線、不用鏡像)判斷, 他方之鎖原樣保留、不下載', async function() {
+                this.timeout(30000)
+                let { value: v, guarded } = await withForeignBinLock(path.resolve(fdTmp, 'cache-held'), async (ctx) => {
+                    let r = await checkDocxReady()
+                    return {
+                        r,
+                        nCalls: ctx.calls.length,
+                        optCall: ctx.calls.length > 0 ? ctx.calls[0].opt : null,
+                        keptOwner: fs.existsSync(path.resolve(ctx.fdLock, 'owner.json')),
+                        entries: fs.readdirSync(ctx.fdPkg),
+                        nameLock: path.basename(ctx.fdLock),
+                    }
+                })
+                assert.strict.equal(guarded, false, 'checkDocxReady should not wait for the lock held by another process')
+                assert.strict.equal(v.r.exeFound, false)
+                assert.strict.equal(v.r.exePath, '')
+                assert.strict.equal(v.r.exeDownloading, true)
+                assert.strict.equal(v.r.ready, process.platform === 'win32') //ready不以轉檔器存在或取得中為條件
+                assert.strict.equal(v.r.platform, process.platform)
+                assert.strict.equal(v.r.cwd, path.resolve())
+                assert.strict.equal(v.nCalls, 1)
+                assert.strict.equal(v.optCall.offline, true) //R-DIAG-1: 仍只看快取(離線)
+                assert.strict.equal(v.optCall.mirror, '') //不用鏡像
+                assert.strict.equal(v.keptOwner, true) //他方之鎖原樣保留
+                assert.strict.deepEqual(v.entries, [v.nameLock]) //快取夾內只有他方之鎖, 沒有下載之檔
+            })
+
+            it('持鎖期間重複與併發之呼叫不累積等候者: 6次呼叫(含3次併發)皆立即回exeDownloading為true, 對w-html2docx之ensureBins只呼叫1次', async function() {
+                this.timeout(30000)
+                let { value: v, guarded } = await withForeignBinLock(path.resolve(fdTmp, 'cache-held-many'), async (ctx) => {
+                    let rs = await Promise.all([checkDocxReady(), checkDocxReady(), checkDocxReady()])
+                    rs.push(await checkDocxReady())
+                    rs.push(await checkDocxReady())
+                    rs.push(await checkDocxReady())
+                    return { rs, nCalls: ctx.calls.length }
+                })
+                assert.strict.equal(guarded, false, 'checkDocxReady should not wait for the lock held by another process')
+                assert.strict.equal(v.rs.length, 6)
+                for (let r of v.rs) {
+                    assert.strict.equal(r.exeFound, false)
+                    assert.strict.equal(r.exePath, '')
+                    assert.strict.equal(r.exeDownloading, true)
+                }
+                assert.strict.equal(v.nCalls, 1) //單一探測在背景等候他方之鎖, 其餘呼叫共用其狀態(不每次新起一個等候者)
+            })
+
+            it('他方釋放後恢復: 取得落定後再呼叫為exeDownloading為false, 並反映快取現況(快取空則exeFound為false); 另起新探測(不沿用已落定者)', async function() {
+                this.timeout(30000)
+                let { value: v, guarded } = await withForeignBinLock(path.resolve(fdTmp, 'cache-held-release'), async (ctx) => {
+                    let r1 = await checkDocxReady()
+                    ctx.release() //他方釋放(快取仍空)
+                    await ctx.settle() //等記錄之取得落定(事件, 非延時): 產品碼之處理先於本處之後續登記, 故此後探測狀態已清除
+                    let r2 = await checkDocxReady()
+                    return { r1, r2, nCalls: ctx.calls.length }
+                })
+                assert.strict.equal(guarded, false)
+                assert.strict.equal(v.r1.exeDownloading, true)
+                assert.strict.equal(v.r2.exeDownloading, false)
+                assert.strict.equal(v.r2.exeFound, false)
+                assert.strict.equal(v.r2.exePath, '')
+                assert.strict.equal(v.nCalls, 2)
+            })
+
+            it('他方下載完成(快取已有校驗相符之檔)後釋放: 再呼叫為exeFound為true且exeDownloading為false', async function() {
+                if (fpExeReal === '') {
+                    console.log('[unit-utils] htmlToDocx.exe is not in the default cache of w-html2docx on this machine, skip')
+                    this.skip()
+                }
+                this.timeout(30000)
+                let { value: v, guarded } = await withForeignBinLock(path.resolve(fdTmp, 'cache-held-done'), async (ctx) => {
+                    let r1 = await checkDocxReady()
+                    let fpHit = path.resolve(ctx.fdPkg, sha, fnExe)
+                    fs.mkdirSync(path.dirname(fpHit), { recursive: true })
+                    fs.copyFileSync(fpExeReal, fpHit) //他方先發布檔案、後釋放鎖
+                    ctx.release()
+                    await ctx.settle()
+                    let r2 = await checkDocxReady()
+                    return { r1, r2, fpHit }
+                })
+                assert.strict.equal(guarded, false)
+                assert.strict.equal(v.r1.exeDownloading, true)
+                assert.strict.equal(v.r1.exeFound, false)
+                assert.strict.equal(v.r2.exeDownloading, false)
+                assert.strict.equal(v.r2.exeFound, true)
+                assert.strict.equal(v.r2.exePath, v.fpHit)
+            })
+
+            it('快取命中者不受他方持鎖影響(命中不取鎖): exeFound為true且exeDownloading為false', async function() {
+                if (fpExeReal === '') {
+                    console.log('[unit-utils] htmlToDocx.exe is not in the default cache of w-html2docx on this machine, skip')
+                    this.skip()
+                }
+                this.timeout(30000)
+                let { value: v, guarded } = await withForeignBinLock(path.resolve(fdTmp, 'cache-held-hit'), async (ctx) => {
+                    let fpHit = path.resolve(ctx.fdPkg, sha, fnExe)
+                    fs.mkdirSync(path.dirname(fpHit), { recursive: true })
+                    fs.copyFileSync(fpExeReal, fpHit)
+                    let r = await checkDocxReady()
+                    return { r, fpHit }
+                })
+                assert.strict.equal(guarded, false)
+                assert.strict.equal(v.r.exeFound, true)
+                assert.strict.equal(v.r.exePath, v.fpHit)
+                assert.strict.equal(v.r.exeDownloading, false)
+            })
+
         })
 
     })

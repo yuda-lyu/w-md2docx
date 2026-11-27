@@ -5,6 +5,7 @@ import assert from 'assert'
 import rmApiServer from '../src/rmApiServer.mjs'
 import runWithFakeHtml2docx from './tools/fakeHtml2docx.mjs'
 import { parts, buildDocx } from './tools/docxFixture.mjs'
+import { withForeignBinLock } from './tools/foreignBinLock.mjs'
 
 
 //rmApiServer: 直打HTTP端點(不經UI); docx相關以html路徵替代, 不需Word
@@ -94,9 +95,34 @@ describe('rmApiServer', function() {
             assert.strict.equal(path.basename(r.exePath), 'htmlToDocx.exe')
             assert.strict.equal(fs.existsSync(r.exePath), true)
         }
+        assert.strict.equal(typeof r.exeDownloading, 'boolean') //他行程正取得轉檔器(持鎖)時為true(預設快取可能正被他測試檔取得, 故只驗型別與一致性)
+        if (r.exeDownloading) {
+            assert.strict.equal(r.exeFound, false)
+        }
         let st = await srv.getState()
         assert.strict.equal(st.docxReady, r.docxReady)
         assert.strict.equal(st.exeFound, r.exeFound)
+    })
+
+    //R-DIAG-2: 他行程持有轉檔器之取得鎖(替身持鎖, 不下載)時, health 不得被卡住
+    //  同步點為 HTTP 回應(事件); 防懸置上限由 withForeignBinLock 持有(逾時移除替身鎖並令 guarded 為 true)
+    it('GET /api/health: 他行程持有轉檔器取得鎖時不等候, 回200且exeFound為false、exeDownloading為true, 其餘環境欄位照給', async function() {
+        this.timeout(30000)
+        let { value: v, guarded } = await withForeignBinLock(path.resolve(fdTmp, 'cache-held'), async () => {
+            let res = await fetch(`${url}/api/health`, { headers: { 'x-api-token': token } })
+            return { status: res.status, r: await res.json() }
+        })
+        assert.strict.equal(guarded, false, 'GET /api/health should not wait for the lock held by another process')
+        assert.strict.equal(v.status, 200)
+        assert.strict.equal(v.r.success, true)
+        assert.strict.equal(v.r.exeFound, false)
+        assert.strict.equal(v.r.exePath, '')
+        assert.strict.equal(v.r.exeDownloading, true)
+        assert.strict.equal(v.r.docxReady, process.platform === 'win32') //docxReady不以轉檔器存在或取得中為條件
+        assert.strict.equal(v.r.platform, process.platform)
+        assert.strict.equal(v.r.tokenRequired, true)
+        assert.strict.deepEqual(v.r.templates, ['temp.docx'])
+        assert.strict.equal(v.r.queue, 0)
     })
 
     it('POST /api/convert out=html: 回傳結構與資產內嵌', async function() {

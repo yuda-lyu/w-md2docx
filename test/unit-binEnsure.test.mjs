@@ -8,6 +8,7 @@ import assert from 'assert'
 import WHtml2docx from 'w-html2docx/src/WHtml2docx.mjs'
 import fsEnsureBinsBudget from 'wsemi/src/fsEnsureBinsBudget.mjs'
 import { BIN_NAME, BIN_TOTAL_MS, BIN_ENSURE_TIMEOUT_MS, binBudgetMs, getBin, ensureHtmlToDocxBin, getWsemiOfHtml2docx } from './tools/binEnsure.mjs'
+import { mkForeignLock } from './tools/foreignBinLock.mjs'
 
 
 //轉檔器 htmlToDocx.exe 之集中取得(test/tools/binEnsure.mjs, 規則帳本 R-TEST-2)
@@ -45,16 +46,7 @@ describe('binEnsure 轉檔器之集中取得與跨程序只取得一次', functi
     let size = entManifest.size
     let ent = null
 
-    //mkForeignLock: 在 fdCache 內放他方之鎖 <快取>/.lock-<鍵>/owner.json, 回傳鎖資料夾
-    //  鍵為 'f/<sha256>/<name>' 轉小寫(Windows)之 SHA-256 前 32 碼(見 wsemi fsEnsureBins 之〈併發〉, 規則 R-BIN-ENSURE-01); 持有者為本行程(存活), 持有上限一小時, 故不會被接手
-    let mkForeignLock = (fdCache) => {
-        let key = crypto.createHash('sha256').update(`f/${sha}/${BIN_NAME}`.toLowerCase()).digest('hex').slice(0, 32)
-        let fdLock = path.resolve(fdCache, `.lock-${key}`)
-        fs.mkdirSync(fdLock, { recursive: true })
-        let rec = { v: 1, pid: process.pid, host: process.env.COMPUTERNAME || process.env.HOSTNAME || '', at: Date.now(), limitMs: 3600000, token: `tmd-${process.pid}` }
-        fs.writeFileSync(path.resolve(fdLock, 'owner.json'), JSON.stringify(rec), 'utf8')
-        return fdLock
-    }
+    //mkForeignLock(於 test/tools/foreignBinLock.mjs, 與 unit-utils、api-rmApiServer 共用): 在 fdCache 內放他方之鎖 <快取>/.lock-<鍵>/owner.json, 回傳鎖資料夾
 
     before(async function() {
         this.timeout(BIN_ENSURE_TIMEOUT_MS)
